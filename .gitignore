@@ -1,0 +1,36 @@
+# Dependencies and builds
+**/target/
+**/node_modules/
+**/.next/
+**/*.tsbuildinfo
+
+# Local configuration and runtime data
+**/.env*
+!**/.env.example
+/data/
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.db
+*.mv.db
+*.dump
+*.backup
+/backups/
+/.private-backups/
+
+# Local screenshots, recordings and editor state
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.mp4
+/.idea/
+/.vscode/
+/.codex/
+/.agents/
+.DS_Store
+Thumbs.db

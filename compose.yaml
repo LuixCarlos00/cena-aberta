@@ -1,0 +1,91 @@
+services:
+  catalog-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: catalog
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD:?defina CATALOG_DB_PASSWORD}
+    volumes:
+      - catalog-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog -d catalog"]
+      interval: 4s
+      timeout: 3s
+      retries: 15
+  social-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: social
+      POSTGRES_USER: social
+      POSTGRES_PASSWORD: ${SOCIAL_DB_PASSWORD:?defina SOCIAL_DB_PASSWORD}
+    volumes:
+      - social-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U social -d social"]
+      interval: 4s
+      timeout: 3s
+      retries: 15
+  catalog:
+    build:
+      context: .
+      dockerfile: infra/service.Dockerfile
+      args:
+        SERVICE: catalog
+    environment:
+      BIND_ADDRESS: 0.0.0.0
+      DATABASE_URL: jdbc:postgresql://catalog-db:5432/catalog
+      DATABASE_USER: catalog
+      DATABASE_PASSWORD: ${CATALOG_DB_PASSWORD}
+      INTERNAL_SECRET: ${CATALOG_INTERNAL_SECRET:?defina CATALOG_INTERNAL_SECRET}
+      TMDB_TOKEN: ${TMDB_TOKEN:-}
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+  social:
+    build:
+      context: .
+      dockerfile: infra/service.Dockerfile
+      args:
+        SERVICE: social
+    environment:
+      BIND_ADDRESS: 0.0.0.0
+      DATABASE_URL: jdbc:postgresql://social-db:5432/social
+      DATABASE_USER: social
+      DATABASE_PASSWORD: ${SOCIAL_DB_PASSWORD}
+      INTERNAL_SECRET: ${SOCIAL_INTERNAL_SECRET:?defina SOCIAL_INTERNAL_SECRET}
+      CATALOG_INTERNAL_SECRET: ${CATALOG_INTERNAL_SECRET}
+      CATALOG_URL: http://catalog:8181
+      EMAIL_MODE: ${EMAIL_MODE:-disabled}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-}
+    depends_on:
+      social-db:
+        condition: service_healthy
+  web:
+    build: ./apps/web
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?defina NEXTAUTH_SECRET}
+      EMAIL_ACCOUNTS: ${EMAIL_ACCOUNTS:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      INVITED_SUBJECTS: ${INVITED_SUBJECTS:-}
+      CATALOG_URL: http://catalog:8181
+      SOCIAL_URL: http://social:8182
+      CATALOG_INTERNAL_SECRET: ${CATALOG_INTERNAL_SECRET}
+      SOCIAL_INTERNAL_SECRET: ${SOCIAL_INTERNAL_SECRET}
+    depends_on:
+      - catalog
+      - social
+volumes:
+  catalog-data:
+  social-data:

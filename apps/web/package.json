@@ -1,0 +1,23 @@
+{
+  "name": "cena-aberta-web",
+  "version": "0.1.0-alpha",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.4.6",
+    "next-auth": "^4.24.15",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.9.0"
+  }
+}

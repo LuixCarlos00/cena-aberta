@@ -1,0 +1,49 @@
+import {getServerSession} from "next-auth";
+import {authOptions} from "../../../../lib/auth";
+
+const routes = [
+  ["GET", /^titles\/[a-z0-9-]+\/seasons\/[0-9]+$/,"catalog"],
+  ["GET", /^me\/episodes\/[a-z0-9-]+(?:\/[0-9]+)?$/,"social"],
+  ["PUT", /^me\/episodes\/[a-z0-9-]+\/[0-9]+\/[0-9]+$/,"social"],
+  ["GET", /^me\/ranking$/,"social"],
+  ["PUT", /^me\/ranking(?:\/[a-z0-9-]+)?$/,"social"],
+  ["GET", /^title-batch$/,"catalog"],
+  ["GET", /^titles(?:\/(?:demo-[a-z0-9-]+|tmdb-(?:movie|tv)-[0-9]+))?$/,"catalog"],
+  ["GET", /^(?:me|profiles\/[a-z0-9_]+|titles\/[a-z0-9-]+\/(?:reviews|community))$/,"social"],
+  ["PUT", /^me\/(?:profile|library\/[a-z0-9-]+\/(?:watched|interest|rating|review|rewatching|visibility)|(?:lists|viewings)\/[a-f0-9-]{36})$/,"social"],
+  ["POST", /^me\/(?:viewings|lists)$/,"social"],
+  ["DELETE", /^me\/(?:lists|viewings)\/[a-f0-9-]{36}$/,"social"],
+] as const;
+
+async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>}) {
+  const path = (await params).path.join("/");
+  const route = routes.find(([method,pattern])=>method===request.method && pattern.test(path));
+  if (!route) return Response.json({message:"Operação não encontrada."},{status:404});
+  const session=await getServerSession(authOptions) as {actor?:string} | null;
+  if(!session?.actor) return Response.json({message:"Entre para continuar."},{status:401});
+  const url=new URL(request.url);
+  if(request.method!=="GET") {
+    const origin=process.env.NEXTAUTH_URL ? new URL(process.env.NEXTAUTH_URL).origin : url.origin;
+    if(request.headers.get("origin")!==origin) return Response.json({message:"Origem inválida."},{status:403});
+  }
+  const catalog=route[2]==="catalog";
+  const base=catalog ? process.env.CATALOG_URL ?? "http://127.0.0.1:8181" : process.env.SOCIAL_URL ?? "http://127.0.0.1:8182";
+  const secret=catalog ? process.env.CATALOG_INTERNAL_SECRET : process.env.SOCIAL_INTERNAL_SECRET;
+  if(!secret) return Response.json({message:"Serviço indisponível."},{status:503});
+  try {
+    const headers:Record<string,string>={"X-Internal-Key":secret,"X-Actor":session.actor};
+    const idempotency=request.headers.get("Idempotency-Key");
+    if(idempotency) headers["Idempotency-Key"]=idempotency;
+    let body:string | undefined;
+    if(request.method==="PUT" || request.method==="POST") {
+      body=await request.text();
+      if(body.length>(path==="me/profile"?105000:16384)) return Response.json({message:"Solicitação muito grande."},{status:413});
+      headers["Content-Type"]="application/json";
+    }
+    const result=await fetch(base+"/"+path+url.search,{method:request.method,headers,body,cache:"no-store",signal:AbortSignal.timeout(6500)});
+    return new Response(result.body,{status:result.status,headers:{"Content-Type":result.headers.get("content-type")??"application/json","Cache-Control":"no-store"}});
+  } catch {
+    return Response.json({message:"Serviço temporariamente indisponível. Tente novamente."},{status:503});
+  }
+}
+export {proxy as GET,proxy as PUT,proxy as POST,proxy as DELETE};

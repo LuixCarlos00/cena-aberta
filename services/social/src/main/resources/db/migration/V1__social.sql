@@ -1,0 +1,9 @@
+CREATE TABLE profile (actor varchar(160) PRIMARY KEY, username varchar(32) UNIQUE NOT NULL, name varchar(80) NOT NULL, bio varchar(300) NOT NULL DEFAULT '', active boolean NOT NULL DEFAULT true);
+CREATE TABLE library (actor varchar(160) REFERENCES profile(actor) ON DELETE CASCADE, title varchar(90), watched boolean NOT NULL DEFAULT false, interest boolean NOT NULL DEFAULT false, rating integer CHECK(rating BETWEEN 1 AND 10), review varchar(3000), spoiler boolean NOT NULL DEFAULT false, hidden boolean NOT NULL DEFAULT false, version integer NOT NULL DEFAULT 0, PRIMARY KEY(actor,title));
+CREATE TABLE viewing (id varchar(36) PRIMARY KEY, actor varchar(160) NOT NULL REFERENCES profile(actor) ON DELETE CASCADE, title varchar(90) NOT NULL, watched_on date, rewatch boolean NOT NULL, created timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL);
+CREATE TABLE collection (id varchar(36) PRIMARY KEY, actor varchar(160) NOT NULL REFERENCES profile(actor) ON DELETE CASCADE, name varchar(100) NOT NULL, description varchar(500) NOT NULL, version integer NOT NULL DEFAULT 0, created timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL);
+CREATE TABLE collection_item (collection_id varchar(36) REFERENCES collection(id) ON DELETE CASCADE, title varchar(90), position integer NOT NULL, PRIMARY KEY(collection_id,title), UNIQUE(collection_id,position));
+CREATE TABLE request_receipt (actor varchar(160) REFERENCES profile(actor) ON DELETE CASCADE, action varchar(20), request_key varchar(80), body_hash varchar(100) NOT NULL, resource_id varchar(36) NOT NULL, created timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(actor,action,request_key));
+CREATE INDEX viewing_actor ON viewing(actor,created);
+CREATE INDEX library_title ON library(title);
+CREATE INDEX collection_actor ON collection(actor);

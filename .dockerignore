@@ -1,0 +1,15 @@
+**/target
+**/node_modules
+**/.next
+**/.env*
+data
+.git
+
+
+/*.png
+/*.jpg
+/*.jpeg
+**/*.pem
+**/*.key
+backups
+.private-backups
