@@ -37,6 +37,7 @@ const tlsPreview=useTls?createHttpsServer({cert:readFileSync(tlsCert),key:readFi
   req.on("aborted",()=>upstream.destroy());
   req.pipe(upstream);
 }):null;
+const email="conta-"+randomUUID()+"@example.test";
 const key = randomUUID();
 const actor = "demo_smoke_user";
 const title = "demo-lua-de-papel";
@@ -93,7 +94,7 @@ try {
     BIND_ADDRESS:"127.0.0.1",
   });
   const cat=start("java",["-jar","services/catalog/target/catalog-0.1.0-alpha.jar"],{...database("catalog"),PORT:"19181",INTERNAL_SECRET:key,TMDB_TOKEN:""});
-  const soc=start("java",["-jar","services/social/target/social-0.1.0-alpha.jar"],{...database("social"),PORT:"19182",INTERNAL_SECRET:key,CATALOG_INTERNAL_SECRET:key,CATALOG_URL:catalog,EMAIL_MODE:"log",FRONTEND_URL:"http://127.0.0.1:19180"});
+  const soc=start("java",["-jar","services/social/target/social-0.1.0-alpha.jar"],{...database("social"),PORT:"19182",INTERNAL_SECRET:key,CATALOG_INTERNAL_SECRET:key,CATALOG_URL:catalog,INVITE_ONLY:"true",INVITED_EMAILS:email.toUpperCase(),EMAIL_MODE:"log",FRONTEND_URL:"http://127.0.0.1:19180"});
   await Promise.all([ready(catalog+"/health",cat),ready(social+"/health",soc)]);
   await request(catalog,"/titles",{authorized:false,expected:401});
   const anime=await request(catalog,"/titles?type=anime");
@@ -283,7 +284,6 @@ try {
     assert.equal((await fetch(web+"/api/v1/"+path)).status,401);
   }
 
-  const email="conta-"+randomUUID()+"@example.test";
   const password=randomUUID()+"!Aa1";
   const newPassword=randomUUID()+"!Bb2";
   async function emailSignIn(fields,{rawCookie=false}={}) {
@@ -306,7 +306,14 @@ try {
     assert.fail("Link de e-mail de teste não gerado.");
   }
   assert.match(await (await fetch(web)).text(),/Criar conta/);
+  const outsiderRequest=await fetch(web+"/api/accounts/register",{method:"POST",headers:{Origin:web,"Content-Type":"application/json"},body:JSON.stringify({email:"outsider@example.test"})});
+  assert.equal(outsiderRequest.status,202);
+  const deniedMessage=await outsiderRequest.json();
+  assert.equal((soc.log??"").includes("#register="),false,"Endereço não convidado recebeu link.");
   const token=await link("register");
+  const repeated=await fetch(web+"/api/accounts/register",{method:"POST",headers:{Origin:web,"Content-Type":"application/json"},body:JSON.stringify({email})});
+  assert.equal(repeated.status,202);
+  assert.deepEqual(await repeated.json(),deniedMessage,"Resposta revela a lista de convidados.");
   assert.equal(await emailSignIn({email,password}),undefined);
   assert.equal(await emailSignIn({purpose:"register",token,password:"curta"}),undefined);
   const account=await emailSignIn({purpose:"register",token,password});

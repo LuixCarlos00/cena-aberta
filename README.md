@@ -71,7 +71,7 @@ O mesmo teste passou com PostgreSQL 16 em bancos descartáveis. Para repetir, fo
 
 O ambiente verificado é a demonstração local. O código prevê Keycloak por OIDC com e-mail verificado e lista de sujeitos convidados. Para configurá-lo, preencha `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` e `INVITED_SUBJECTS`, e registre a URL de retorno `/api/auth/callback/keycloak` no cliente OIDC. A remoção da lista deve ser aplicada ao ambiente web para invalidar o acesso na próxima verificação de sessão. [Documentação OIDC do Keycloak](https://www.keycloak.org/securing-apps/oidc-layers)
 
-A liberação para usuários reais ainda requer validar a opção de identidade escolhida com credenciais reais (SMTP ou OIDC), validar o TMDB, ensaiar restauração, concluir moderação e privacidade operacionais e testar hospedagem HTTPS. O cadastro por e-mail aceita qualquer endereço verificado quando habilitado. Use OIDC com a lista de convidados para um alpha restrito por convite. O diário e “Quero assistir” são privados. Notas e resenhas só entram na comunidade quando o autor ativa a avaliação pública. Listas públicas são visíveis aos participantes com acesso. Nesta primeira entrega, o painel tem limites de consulta em vez de paginação completa nas áreas sociais.
+A liberação para usuários reais ainda requer validar a opção de identidade escolhida com credenciais reais (SMTP ou OIDC), validar o TMDB, ensaiar restauração, concluir moderação e privacidade operacionais e testar hospedagem HTTPS. O cadastro por e-mail aceita qualquer endereço verificado quando habilitado. Ative `INVITE_ONLY=true` para restringir o cadastro por e-mail aos convidados. O diário e “Quero assistir” são privados. Notas e resenhas só entram na comunidade quando o autor ativa a avaliação pública. Listas públicas são visíveis aos participantes com acesso. Nesta primeira entrega, o painel tem limites de consulta em vez de paginação completa nas áreas sociais.
 
 O catálogo de demonstração e a identidade visual são próprios. O projeto se inspira na ideia de diário audiovisual do Letterboxd.
 
@@ -80,8 +80,29 @@ O catálogo de demonstração e a identidade visual são próprios. O projeto se
 
 O [plano mobile](PLANO_MOBILE.md) registra as etapas, verificações e limitações. A rodada em aparelho real cobriu Chrome no Galaxy S24, teclado virtual, seleção de avatar e reordenação do ranking. iPhone e PWA permanecem fora da validação atual.
 
-As próximas entregas são cadastro por convite com e-mail verificado, implantação em VM Linux ARM com Docker Compose, acesso HTTPS pelo Tailscale Funnel e backup externo com ensaio de restauração. Esses itens ainda não estão implementados ou validados neste repositório.
+Os arquivos de implantação em VM Linux ARM, acesso pelo Tailscale Funnel e comandos de backup e restauração isolada estão em `deploy/`. O provisionamento da VM, a transferência de backups para armazenamento externo e a validação do HTTPS com serviços reais ainda dependem do ambiente hospedado.
 
 ## Configuração privada
 
 O repositório contém apenas o modelo `.env.example`, sem credenciais. Crie seu `.env` localmente e mantenha tokens do TMDB, credenciais SMTP, segredos de sessão e senhas de bancos fora do controle de versão. Bancos, uploads de usuários, certificados, logs e capturas locais não fazem parte da distribuição. O teste de integração utiliza contas fictícias e serviços simulados; não precisa de credenciais do TMDB ou SMTP.
+
+## Cadastro por convite
+
+Para o alpha restrito, configure no `.env` privado:
+
+```dotenv
+INVITE_ONLY=true
+INVITED_EMAILS=convidado@example.test,outro@example.test
+```
+
+Substitua os endereços fictícios pelos convidados reais, sem versionar a lista. Separe os endereços por vírgulas; espaços nas extremidades e diferenças entre maiúsculas e minúsculas são normalizados. Com o modo ativo e a lista vazia, nenhum novo cadastro é permitido. Uma entrada inválida impede a inicialização do serviço social, sem registrar o endereço no erro.
+
+Reinicie `node scripts/local.mjs` ou recrie o serviço com `docker compose up -d social` após alterar a lista. A autorização é verificada tanto ao solicitar o link quanto ao confirmar a conta. Remover um endereço e reiniciar o serviço bloqueia inclusive links de cadastro já emitidos. Os links expiram em uma hora e só podem ser utilizados uma vez; nenhuma conta é criada antes da confirmação.
+
+A resposta ao pedido de link continua genérica, sem revelar se um endereço foi convidado ou já tem conta. A lista controla **novos cadastros**: remover um convidado não revoga uma conta existente, suas sessões ou a recuperação de senha. `INVITE_ONLY=false` mantém o cadastro aberto por e-mail verificado. O modo OIDC continua usando `INVITED_SUBJECTS` de forma independente.
+
+Os testes do serviço social usam banco em memória e remetente simulado para verificar convite válido, endereço não autorizado, lista vazia, link expirado ou removido, uso único e recuperação de uma conta existente. Execute `mvn -B package` e depois `node scripts/smoke.mjs` para validar também os fluxos completos.
+
+## Implantação do alpha
+
+Consulte [Oracle, Funnel e recuperação](deploy/README.md) para configurar o Compose restrito, publicar HTTPS e executar backup e restauração isolada. Use `deploy/.env` privado no servidor; o GitHub recebe somente o modelo sem credenciais.

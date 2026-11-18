@@ -23,7 +23,7 @@ const tmdbToken=(process.env.TMDB_TOKEN??localSettings.TMDB_TOKEN??"").trim();
 const catalogKey=randomUUID();
 const socialKey=randomUUID();
 const running=[];
-const mailKeys=["EMAIL_MODE","FRONTEND_URL","SMTP_HOST","SMTP_PORT","SMTP_USERNAME","SMTP_PASSWORD","SMTP_AUTH","SMTP_STARTTLS","MAIL_FROM"];
+const mailKeys=["INVITE_ONLY","INVITED_EMAILS","EMAIL_MODE","FRONTEND_URL","SMTP_HOST","SMTP_PORT","SMTP_USERNAME","SMTP_PASSWORD","SMTP_AUTH","SMTP_STARTTLS","MAIL_FROM"];
 const mailEnvironment=Object.fromEntries(mailKeys.map(key=>[key,process.env[key]??localSettings[key]??""]).filter(([,value])=>value!==""));
 const sharedEnvironment=Object.fromEntries(Object.entries(process.env).filter(([key])=>!["TMDB_TOKEN","NEXTAUTH_SECRET"].includes(key)&&!mailKeys.includes(key)));
 function start(command,args,env,cwd) {

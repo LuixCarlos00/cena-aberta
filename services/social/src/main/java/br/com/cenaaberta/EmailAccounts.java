@@ -35,14 +35,25 @@ class EmailAccounts {
     private final String dummy=encoder.encode(UUID.randomUUID().toString());
     private final byte[] secret;
     private final String mode, front, from;
+    private final boolean inviteOnly;
+    private final Set<String> invitedEmails;
     private long minute;
     private int requests;
 
     EmailAccounts(JdbcTemplate db,ObjectProvider<JavaMailSender> mail,
         @Value("${internal.secret}") String secret,@Value("${EMAIL_MODE:disabled}") String mode,
-        @Value("${FRONTEND_URL:http://localhost:3000}") String front,@Value("${MAIL_FROM:}") String from) {
+        @Value("${FRONTEND_URL:http://localhost:3000}") String front,@Value("${MAIL_FROM:}") String from,
+        @Value("${INVITE_ONLY:false}") boolean inviteOnly,@Value("${INVITED_EMAILS:}") String invitedEmails) {
         this.db=db; this.mail=mail.getIfAvailable(); this.secret=secret.getBytes(StandardCharsets.UTF_8);
         this.mode=mode; this.front=front.replaceAll("/$",""); this.from=from;
+        this.inviteOnly=inviteOnly;
+        var invitations=new HashSet<String>();
+        for(String entry:invitedEmails.split(",")) {
+            if(entry.isBlank()) continue;
+            try { invitations.add(email(entry)); }
+            catch(ResponseStatusException invalid) { throw new IllegalArgumentException("INVITED_EMAILS contém um e-mail inválido"); }
+        }
+        this.invitedEmails=Set.copyOf(invitations);
         if (!Set.of("disabled","log","smtp").contains(mode)) throw new IllegalArgumentException("EMAIL_MODE inválido");
         if (!mode.equals("disabled")) {
             URI url=URI.create(front);
@@ -67,6 +78,7 @@ class EmailAccounts {
         if(mode.equals("disabled")) throw error(HttpStatus.SERVICE_UNAVAILABLE,"Envio de e-mail indisponível.");
         limit();
         String email=email(input.email());
+        if(purpose.equals("register") && !canRegister(email)) return;
         if (account(email).isEmpty() != purpose.equals("register")) return;
         var now=OffsetDateTime.now(ZoneOffset.UTC);
         byte[] bytes=new byte[32]; random.nextBytes(bytes);
@@ -105,6 +117,7 @@ class EmailAccounts {
         if(rows.isEmpty()) throw invalid();
         String email=(String)rows.getFirst().get("email");
         if(purpose.equals("register")) {
+            if(!canRegister(email)) throw invalid();
             try { db.update("insert into email_account(actor,email,password_hash) values(?,?,?)","account_"+UUID.randomUUID().toString().replace("-",""),email,encoded); }
             catch(DuplicateKeyException duplicate) { throw invalid(); }
         } else if(db.update("update email_account set password_hash=?,session_version=session_version+1 where email=?",encoded,email)!=1) throw invalid();
@@ -134,6 +147,10 @@ class EmailAccounts {
     private Optional<Login> account(String email) {
         return db.query("select actor,session_version from email_account where email=?",
             (r,i)->new Login(r.getString("actor"),r.getInt("session_version"),email),email).stream().findFirst();
+    }
+
+    private boolean canRegister(String email) {
+        return !inviteOnly || invitedEmails.contains(email);
     }
 
     private void send(String email,String purpose,String link) {
