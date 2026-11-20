@@ -266,7 +266,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   return <>
     <header className="top"><div className="wrap nav">
       <button className="logo" onClick={()=>changeTab("all")}><span className="mark">◈</span> cena<span>aberta</span></button>
-      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={(tab===id?"nav-active ":"")+(id!=="all"?"catalog-desktop-category":"")} onClick={()=>changeTab(id)}>{name}</button>)}<CatalogDrawer categories={categories.filter(([id])=>id!=="all")} current={tab} onSelect={changeTab}/><a className="room-nav-link" href="/salas">Escolher juntos</a></nav>}
+      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={(tab===id?"nav-active ":"")+"catalog-desktop-category"} onClick={()=>changeTab(id)}>{name}</button>)}<CatalogDrawer categories={categories.map(([id,name])=>[id,id==="all"?"Todos":name])} current={tab} onSelect={changeTab}/><a className="room-nav-link" href="/salas">Escolher juntos</a></nav>}
       <div className={authenticated?"account account-signed-in":"account"}>
         {authenticated?<>
           <button type="button" className="nav-profile" aria-current={tab==="profile"&&!pageTitle&&owned?"page":undefined} onClick={()=>changeTab("profile")}>
