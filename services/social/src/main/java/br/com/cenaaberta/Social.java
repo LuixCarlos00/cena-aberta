@@ -295,6 +295,7 @@ public class Social {
 
         if (profiles.isEmpty()) return Map.of("needsProfile",true);
 
+        if(!Boolean.TRUE.equals(profiles.getFirst().get("active")) && db.queryForObject("select count(*) from email_account where actor=? and state='paused'",Integer.class,actor)>0)return Map.of("paused",true);
         checkActive(profiles.getFirst());
 
         return dashboard(profiles.getFirst(),actor,true);

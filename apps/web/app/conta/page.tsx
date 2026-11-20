@@ -22,6 +22,10 @@ export default function Conta() {
   },[]);
   useEffect(()=>{
     const params=new URLSearchParams(location.search);
+    const accountState=params.get("estado");
+    if(accountState==="paused")setMessage("Conta pausada. Entre novamente para reativá-la.");
+    if(accountState==="deleted")setMessage("Conta marcada como deletada. O acesso foi encerrado.");
+    if(accountState==="active")setMessage("Conta reativada. Entre para continuar.");
     const destination=returnPath(params.get("next"));
     if(destination!=="/")sessionStorage.setItem("room-return",destination);
     const fragment=new URLSearchParams(location.hash.slice(1));

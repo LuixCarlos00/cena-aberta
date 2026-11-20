@@ -1,0 +1,16 @@
+"use client";
+import {useEffect,useState,type FormEvent} from "react";
+import {signOut} from "next-auth/react";
+export function AccountSettings({supported}:{supported:boolean}){
+ const [state,setState]=useState(""),[action,setAction]=useState(""),[password,setPassword]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ async function load(){setError("");try{const r=await fetch("/api/accounts/management",{cache:"no-store"});const d=await r.json();if(!r.ok)throw Error(d.message);setState(d.state);}catch(e){setError((e as Error).message);}}
+ useEffect(()=>{if(supported)void load();},[supported]);
+ async function submit(e:FormEvent){e.preventDefault();if(busy)return;setBusy(true);setError("");try{const r=await fetch("/api/accounts/management",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,password})});const d=await r.json();if(!r.ok)throw Error(d.message||"Não foi possível atualizar a conta.");setPassword("");await signOut({callbackUrl:"/conta?estado="+d.state});}catch(e){setError((e as Error).message);setBusy(false);}}
+ return <main className="wrap account-settings"><a className="account-brand" href="/">Cena Aberta</a><section className="panel"><h1>Minha conta</h1>
+ {!supported?<p>Gerencie esta conta pelo seu provedor de acesso.</p>:!state&&!error?<p role="status">Carregando conta…</p>:<>
+ {state==="paused"?<><h2>Conta pausada</h2><p>Seu perfil está oculto e suas interações estão bloqueadas. Seus dados continuam salvos. Reative quando quiser voltar.</p><button className="primary" disabled={busy} onClick={()=>{setAction("resume");setPassword("");}}>Reativar conta</button></>:state==="active"?<><h2>Pausar conta</h2><p>Oculte seu perfil e interrompa suas interações. Seus dados ficam salvos até você reativar a conta.</p><button disabled={busy} onClick={()=>{setAction("pause");setPassword("");}}>Pausar minha conta</button></>:null}
+ {state&&<section className="account-danger"><h2>Excluir conta</h2><p>A conta será marcada como deletada. Seu perfil ficará oculto e o acesso será bloqueado. Os dados serão mantidos; esta opção não apaga os registros e não permite reativação por aqui.</p><button disabled={busy} onClick={()=>{setAction("delete");setPassword("");}}>Excluir minha conta</button></section>}
+ {action&&<form className="form account-confirm" onSubmit={submit}><h3>{action==="delete"?"Confirmar exclusão":action==="pause"?"Confirmar pausa":"Confirmar reativação"}</h3><label>Confirme sua senha<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required maxLength={72}/></label><p>Ao confirmar, suas sessões serão encerradas.</p><div className="row"><button className="primary" disabled={busy}>{busy?"Confirmando…":"Confirmar"}</button><button type="button" disabled={busy} onClick={()=>{setAction("");setPassword("");}}>Cancelar</button></div></form>}
+ </>}{error&&<p className="message error" role="alert">{error}{!state&&<button onClick={()=>void load()}>Tentar novamente</button>}</p>}
+ <p><a href="/?aba=profile">Voltar ao <strong>Meu perfil</strong></a></p><button onClick={()=>void signOut({callbackUrl:"/conta"})}>Sair</button></section></main>;
+}

@@ -80,6 +80,7 @@ class EmailAccounts {
         String email=email(input.email());
         if(purpose.equals("register") && !canRegister(email)) return;
         boolean exists=account(email).isPresent();
+        if(exists && "deleted".equals(db.queryForObject("select state from email_account where email=?",String.class,email)))return;
         if(purpose.equals("reset")&&!exists)return;
         if(purpose.equals("register")&&exists)return;
         var now=OffsetDateTime.now(ZoneOffset.UTC);
@@ -130,6 +131,7 @@ class EmailAccounts {
         var rows=db.queryForList("select email from email_link where token_hash=? and purpose=? and expires_at>CURRENT_TIMESTAMP for update",tokenHash,purpose);
         if(rows.isEmpty()) throw invalid();
         String email=(String)rows.getFirst().get("email");
+        if(db.queryForObject("select count(*) from email_account where email=? and state='deleted'",Integer.class,email)>0)throw invalid();
         if(purpose.equals("register")) {
             if(!canRegister(email)) throw invalid();
             try { db.update("insert into email_account(actor,email,password_hash) values(?,?,?)","account_"+UUID.randomUUID().toString().replace("-",""),email,encoded); }
@@ -143,7 +145,7 @@ class EmailAccounts {
     Login login(@RequestBody Input input) {
         limit();
         String email=email(input.email());
-        var rows=db.queryForList("select actor,password_hash,session_version from email_account where email=?",email);
+        var rows=db.queryForList("select actor,password_hash,session_version from email_account where email=? and state<>'deleted'",email);
         var row=rows.isEmpty()?Map.<String,Object>of():rows.getFirst();
         String password=input.password();
         if(password==null || password.getBytes(StandardCharsets.UTF_8).length>72 ||
@@ -154,8 +156,35 @@ class EmailAccounts {
 
     @GetMapping("/session")
     void session(@RequestHeader("X-Actor") String actor,@RequestParam int version) {
-        Integer count=db.queryForObject("select count(*) from email_account where actor=? and session_version=?",Integer.class,actor,version);
+        Integer count=db.queryForObject("select count(*) from email_account where actor=? and session_version=? and state<>'deleted'",Integer.class,actor,version);
         if(count==null || count!=1) throw error(HttpStatus.UNAUTHORIZED,"Sessão inválida.");
+    }
+
+    record AccountChange(String action,String password) {}
+    @GetMapping("/management")
+    Map<String,String> management(@RequestHeader("X-Actor") String actor) {
+        var rows=db.queryForList("select state from email_account where actor=? and state<>'deleted'",String.class,actor);
+        if(rows.isEmpty())throw error(HttpStatus.NOT_FOUND,"Conta indisponível.");
+        return Map.of("state",rows.getFirst());
+    }
+    @PostMapping("/management") @Transactional
+    Map<String,String> manage(@RequestHeader("X-Actor") String actor,@RequestBody AccountChange input) {
+        limit();
+        if(input.action()==null||!Set.of("pause","resume","delete").contains(input.action()))throw error(HttpStatus.BAD_REQUEST,"Ação inválida.");
+        var rows=db.queryForList("select email,password_hash,state from email_account where actor=? for update",actor);
+        if(rows.isEmpty()||"deleted".equals(rows.getFirst().get("state")))throw error(HttpStatus.NOT_FOUND,"Conta indisponível.");
+        var row=rows.getFirst();String password=input.password();
+        if(password==null||password.getBytes(StandardCharsets.UTF_8).length>72||!encoder.matches(password,(String)row.get("password_hash")))throw error(HttpStatus.UNAUTHORIZED,"Senha incorreta.");
+        String previous=(String)row.get("state");
+        String next=switch(input.action()){case "pause"->"paused";case "resume"->"active";default->"deleted";};
+        if(next.equals(previous))return Map.of("state",next);
+        if(input.action().equals("resume")&&!previous.equals("paused"))throw error(HttpStatus.CONFLICT,"A conta não está pausada.");
+        var profiles=db.queryForList("select active from profile where actor=? for update",Boolean.class,actor);
+        if(input.action().equals("pause")&&(profiles.isEmpty()||!profiles.getFirst()))throw error(HttpStatus.CONFLICT,"Conta indisponível para pausa.");
+        db.update("update email_account set state=?,state_changed_at=CURRENT_TIMESTAMP,session_version=session_version+1 where actor=?",next,actor);
+        db.update("update profile set active=? where actor=?",next.equals("active"),actor);
+        db.update("update email_link set expires_at=CURRENT_TIMESTAMP where email=?",row.get("email"));
+        return Map.of("state",next);
     }
 
     private Optional<Login> account(String email) {

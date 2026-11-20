@@ -201,7 +201,7 @@ public class MovieRooms {
         var r=room(id,true);requireMember(id,actor);
         var result=new LinkedHashMap<String,Object>();
         result.put("id",id);result.put("name",r.get("name"));result.put("status",r.get("status"));result.put("isOwner",actor.equals(r.get("owner")));result.put("chosen",r.get("chosen"));
-        var members=db.queryForList("select p.username,p.name,p.avatar,(select count(*) from movie_room_vote v where v.room=m.room and v.actor=m.actor) as voted from movie_room_member m join profile p on p.actor=m.actor where m.room=? order by m.joined,p.username",id);
+        var members=db.queryForList("select case when p.active then p.username else '' end as username,case when p.active then p.name else 'Conta indisponível' end as name,case when p.active then p.avatar else '' end as avatar,p.active,(select count(*) from movie_room_vote v where v.room=m.room and v.actor=m.actor) as voted from movie_room_member m join profile p on p.actor=m.actor where m.room=? order by m.joined,p.username",id);
         for(var participant:members)participant.put("isSelf",Objects.equals(participant.get("username"),db.queryForObject("select username from profile where actor=?",String.class,actor)));
         result.put("members",members);result.put("genre",r.get("genre"));result.put("genres",genres(r));
         var titles=db.queryForList("select snapshot from movie_room_title where room=? order by position",String.class,id);
@@ -210,7 +210,7 @@ public class MovieRooms {
         result.put("matches",matches(id,members.size()));
         var reconsiderations=new ArrayList<Map<String,Object>>();
         if(r.get("status").equals("voting"))for(String title:reconsiderationTitles(id,actor,members.size())){
-            var supporters=db.queryForList("select p.username,p.name,p.avatar from movie_room_vote v join profile p on p.actor=v.actor where v.room=? and v.title=? and v.liked=true order by p.username",id,title);
+            var supporters=db.queryForList("select case when p.active then p.username else '' end as username,case when p.active then p.name else 'Conta indisponível' end as name,case when p.active then p.avatar else '' end as avatar,p.active from movie_room_vote v join profile p on p.actor=v.actor where v.room=? and v.title=? and v.liked=true order by p.username",id,title);
             for(var supporter:supporters)supporter.put("isSelf",Objects.equals(supporter.get("username"),db.queryForObject("select username from profile where actor=?",String.class,actor)));
             reconsiderations.add(Map.of("title",title,"supporters",supporters));
         }

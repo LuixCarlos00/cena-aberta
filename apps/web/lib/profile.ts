@@ -7,8 +7,10 @@ export async function profileState(actor:string) {
     headers:{"X-Internal-Key":secret,"X-Actor":actor},cache:"no-store",signal:AbortSignal.timeout(6500),
   });
   if(!result.ok)throw new Error("Não foi possível verificar seu perfil. Tente novamente.");
-  return await result.json() as {needsProfile?:boolean};
+  return await result.json() as {needsProfile?:boolean;paused?:boolean};
 }
 export async function requireProfile(actor:string,next="/") {
-  if((await profileState(actor)).needsProfile)redirect("/conta/perfil?next="+encodeURIComponent(next));
+  const state=await profileState(actor);
+  if(state.paused)redirect("/conta/configuracoes");
+  if(state.needsProfile)redirect("/conta/perfil?next="+encodeURIComponent(next));
 }

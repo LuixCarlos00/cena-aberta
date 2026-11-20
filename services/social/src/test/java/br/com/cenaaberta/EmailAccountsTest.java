@@ -23,7 +23,7 @@ class EmailAccountsTest {
 
     @BeforeEach void setup() {
         var source=new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");
-        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V2__email_accounts.sql")).execute(source);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V1__social.sql"),new ClassPathResource("db/migration/V2__email_accounts.sql"),new ClassPathResource("db/migration/V20__account_state.sql")).execute(source);
         db=new JdbcTemplate(source);
         mail=mock(JavaMailSender.class);
     }
@@ -145,5 +145,30 @@ class EmailAccountsTest {
         assertEquals(0,db.queryForObject("select count(*) from email_link where purpose='reset'",Integer.class));
         doNothing().when(mail).send(any(SimpleMailMessage.class));
         link(service,"reset",address);
+    }
+    @Test void pauseResumeAndLogicalDeletionPreserveDataAndRevokeSessions() {
+        var service=service(false,"");
+        var login=service.confirm("register",confirmation(link(service,"register",address)));
+        String actor=login.id();
+        db.update("insert into profile(actor,username,name) values(?,?,?)",actor,"guest","Guest");
+        db.update("insert into library(actor,title,watched) values(?,?,true)",actor,"demo-film");
+        assertThrows(ResponseStatusException.class,()->service.manage(actor,new EmailAccounts.AccountChange("pause","wrong")));
+        assertEquals("active",service.management(actor).get("state"));
+        service.manage(actor,new EmailAccounts.AccountChange("pause",password));
+        assertEquals("paused",service.management(actor).get("state"));
+        assertFalse(db.queryForObject("select active from profile where actor=?",Boolean.class,actor));
+        assertThrows(ResponseStatusException.class,()->service.session(actor,login.version()));
+        var paused=service.login(new EmailAccounts.Input(address,password,null));
+        service.manage(actor,new EmailAccounts.AccountChange("resume",password));
+        assertTrue(db.queryForObject("select active from profile where actor=?",Boolean.class,actor));
+        assertThrows(ResponseStatusException.class,()->service.session(actor,paused.version()));
+        String reset=link(service,"reset",address);
+        service.manage(actor,new EmailAccounts.AccountChange("delete",password));
+        assertEquals("deleted",db.queryForObject("select state from email_account where actor=?",String.class,actor));
+        assertEquals(1,db.queryForObject("select count(*) from library where actor=?",Integer.class,actor));
+        assertThrows(ResponseStatusException.class,()->service.login(new EmailAccounts.Input(address,password,null)));
+        assertThrows(ResponseStatusException.class,()->service.confirm("reset",confirmation(reset)));
+        assertThrows(ResponseStatusException.class,()->service.manage(actor,new EmailAccounts.AccountChange("resume",password)));
+        clearInvocations(mail);service.request("reset",new EmailAccounts.Input(address,null,null));service.request("register",new EmailAccounts.Input(address,null,null));verifyNoInteractions(mail);
     }
 }

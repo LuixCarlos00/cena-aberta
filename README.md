@@ -119,3 +119,9 @@ Consulte [Implantação, Funnel e recuperação](deploy/README.md) para configur
 
 - [Vinícius Araújo (@viiveki)](https://github.com/viiveki)
 - Luiz
+
+### Conta e aparência
+
+Em **Meu perfil > Minha conta**, o usuário pode pausar, reativar ou excluir a conta mediante confirmação da senha. Pausar oculta o perfil e bloqueia interações; novo login permite reativar. Excluir é uma exclusão lógica: marca a conta como deletada, oculta o perfil e bloqueia login, sem apagar registros. As operações invalidam sessões e links de e-mail anteriores.
+
+O seletor **Aparência** oferece Escuro, Claro e Sistema. A preferência fica salva no navegador; Sistema acompanha a aparência do dispositivo.
