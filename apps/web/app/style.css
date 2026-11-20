@@ -98,7 +98,7 @@ button{cursor:pointer;color:inherit;background:#252d3d;border:1px solid var(--li
 .rank-film select{font-size:.65rem;padding:4px 1px;width:100%;margin-top:5px}.rank-bank{border:1px dashed var(--line);margin-top:16px;padding:12px;border-radius:8px}.rank-bank h3{font-size:1rem;margin:0}
 @media(max-width:550px){.rank-tier{grid-template-columns:85px minmax(0,1fr)}.rank-tier h3{padding:8px;font-size:.8rem}}
 
-.rank-order{display:flex;gap:4px;margin-top:6px}
+.rank-order{display:none;gap:4px;margin-top:6px}
 .rank-order button{flex:1;min-height:44px;padding:4px}
 .rating-note-select,.rating-mode{min-height:44px}
 .rating-mode{color:var(--muted);font-size:.875rem}
@@ -227,3 +227,21 @@ button{cursor:pointer;color:inherit;background:#252d3d;border:1px solid var(--li
 .room-friends{padding:18px;border:1px solid var(--line);border-radius:14px;background:#ffffff03}.room-friends>p{color:var(--muted);font-size:.85rem}.room-friend-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line)}.room-friend-row .room-member-link{min-width:0}.room-friend-row .profile-avatar{width:40px;height:40px}.room-friend-row small{display:block;color:var(--muted)}.room-friend-row>button{min-height:44px;flex:none;font-size:.85rem}
 
 .profile-friends .friend-person{justify-content:flex-start;flex-direction:row;align-items:center;padding:14px 8px;border-radius:10px}.profile-friends .friend-person:hover{background:var(--surface)}.profile-friends .friend-person:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+@media(max-width:650px){
+  .profile-card-strip{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(90px,calc((100% - 16px)/3));gap:8px;overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:2px;padding:3px 2px 10px;scrollbar-width:thin;scrollbar-color:#69778e #171c28;align-items:start}
+  .profile-card-strip>*{min-width:0;scroll-snap-align:start;overflow-wrap:anywhere}
+  .profile-card-strip .card{width:100%;font-size:.8rem;line-height:1.35}
+  .profile-card-strip .poster{border-radius:7px}
+  .profile-card-strip .catalog-card{font-size:.78rem;gap:6px}
+  .public-ranking-cards{gap:8px;scroll-snap-type:x proximity}
+  .public-ranking-cards .catalog-card{flex:0 0 calc((100% - 16px)/3);min-width:90px;scroll-snap-align:start;font-size:.8rem}
+  .rank-tier{grid-template-columns:minmax(0,1fr);min-height:0}
+  .rank-tier h3{justify-content:flex-start;padding:6px 10px;font-size:.8rem}
+  .rank-cards{gap:8px;padding:8px;scroll-snap-type:x proximity;align-items:start}
+  .rank-film{width:calc((100% - 16px)/3);min-width:92px;scroll-snap-align:start}
+  .rank-film select{padding:6px 2px}
+  .rank-order{display:flex}
+  .rank-order button{min-width:0}
+  .rank-bank{padding:8px}
+}
