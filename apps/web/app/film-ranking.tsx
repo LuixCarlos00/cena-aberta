@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useRef,useState} from "react";
+import {useEffect,useRef,useState,type ReactNode} from "react";
 
 type Film={id:string;name:string;poster:string|null};
 type Ranked={title:string;tier:number};
@@ -7,7 +7,7 @@ type Ranking={version:number;items:Ranked[]};
 export const rankingCategories=["Obra-prima","Muito bom","Bom","Regular","Não gostei"];
 const dragType="application/x-cena-film";
 
-export function FilmRanking({films}:{films:(Film&{format:string;anime:boolean})[]}) {
+export function FilmRanking({films,visibility}:{visibility?:ReactNode;films:(Film&{format:string;anime:boolean})[]}) {
   const [kind,setKind]=useState("movie");
   const [ranking,setRanking]=useState<Ranking|null>(null);
   const [items,setItems]=useState<Ranked[]>([]);
@@ -89,7 +89,7 @@ export function FilmRanking({films}:{films:(Film&{format:string;anime:boolean})[
     event.preventDefault();move(event.dataTransfer.getData(dragType),tier);setDragging("");
   }
   return <section className="panel ranking" aria-labelledby="ranking-heading">
-    <div className="section-heading"><h2 id="ranking-heading" className="ranking-title"><span aria-hidden="true">👑</span> Meu ranking</h2><button className="primary" disabled={!dirty||busy||!ranking} onClick={()=>void save()}>{busy?"Salvando…":"Salvar ranking"}</button></div>
+    <div className="section-heading ranking-heading"><div className="section-title-controls"><h2 id="ranking-heading" className="ranking-title"><span aria-hidden="true">👑</span> Meu ranking</h2>{visibility}</div><button className="primary" disabled={!dirty||busy||!ranking} onClick={()=>void save()}>{busy?"Salvando…":"Salvar ranking"}</button></div>
     <div className="row ranking-tabs" role="group" aria-label="Tipo de obra">
       {[["movie","Filmes"],["tv","Séries"],["anime","Animes"]].map(([id,label])=><button key={id} type="button"
         aria-pressed={kind===id} onClick={()=>setKind(id)}>{label}</button>)}

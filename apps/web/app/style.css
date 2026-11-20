@@ -260,3 +260,5 @@ button{cursor:pointer;color:inherit;background:var(--surface);border:1px solid v
 :root[data-theme=light] .friend-badge,:root[data-theme=light] .visibility-toggle[aria-pressed=true]{color:#276342}
 :root[data-theme=light] .room-delete{color:#9c3838}
 :root[data-theme=light] .rank-tier h3{color:#202736}
+
+.diary-cards{align-items:stretch}.diary-actions{display:grid;gap:8px;margin-top:auto;padding-top:4px}.diary-actions button{min-height:44px}.section-title-controls{display:flex;align-items:center;gap:10px;min-width:0}.section-title-controls h2{margin:0}.lists-heading,.ranking-heading{align-items:center}
