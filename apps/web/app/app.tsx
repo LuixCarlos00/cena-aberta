@@ -3,6 +3,7 @@ import {useCallback,useEffect,useRef,useState,type ReactNode} from "react";
 import {signIn,signOut} from "next-auth/react";
 import {useRouter} from "next/navigation";
 import {EpisodeRatings} from "./episode-ratings";
+import {CatalogDrawer} from "./catalog-drawer";
 import {FilmRanking,rankingCategories} from "./film-ranking";
 import type {Release} from "../lib/releases";
 import {Landing} from "./landing";
@@ -260,7 +261,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   return <>
     <header className="top"><div className="wrap nav">
       <button className="logo" onClick={()=>changeTab("all")}><span className="mark">◈</span> cena<span>aberta</span></button>
-      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={tab===id?"nav-active":""} onClick={()=>changeTab(id)}>{name}</button>)}<a className="room-nav-link" href="/salas">Escolher juntos</a></nav>}
+      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={(tab===id?"nav-active ":"")+(id!=="all"?"catalog-desktop-category":"")} onClick={()=>changeTab(id)}>{name}</button>)}<CatalogDrawer categories={categories.filter(([id])=>id!=="all")} current={tab} onSelect={changeTab}/><a className="room-nav-link" href="/salas">Escolher juntos</a></nav>}
       <div className={authenticated?"account account-signed-in":"account"}>
         {authenticated?<>
           <button type="button" className="nav-profile" aria-current={tab==="profile"&&!pageTitle&&owned?"page":undefined} onClick={()=>changeTab("profile")}>
