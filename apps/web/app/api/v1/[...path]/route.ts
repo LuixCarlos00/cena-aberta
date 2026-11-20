@@ -3,6 +3,7 @@ import {getServerSession} from "next-auth";
 import {authOptions} from "../../../../lib/auth";
 
 const routes = [
+  ["GET", /^feedback\/[a-f0-9-]{36}\/images\/[a-f0-9-]{36}$/,"social"],
   ["PUT", /^rooms\/[a-f0-9-]{36}\/reconsider\/[a-z0-9-]+$/,"social"],
   ["PUT", /^me\/visibility$/,"social"],
   ["DELETE", /^rooms\/[a-f0-9-]{36}$/,"social"],
@@ -56,12 +57,14 @@ async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>})
     if(idempotency) headers["Idempotency-Key"]=idempotency;
     let body:string | undefined;
     if(request.method==="PUT" || request.method==="POST") {
-      body=await request.text();
-      if(body.length>(path==="me/profile"?105000:16384)) return Response.json({message:"Solicitação muito grande."},{status:413});
+      const limit=path==="feedback"?5_400_000:path==="me/profile"?105000:16384;
+      const reader=request.body?.getReader();const chunks:Uint8Array[]=[];let bytes=0;
+      if(reader){while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>limit){await reader.cancel();return Response.json({message:"Solicitação muito grande."},{status:413});}chunks.push(value);}}
+      const payload=new Uint8Array(bytes);let position=0;for(const chunk of chunks){payload.set(chunk,position);position+=chunk.byteLength;}body=new TextDecoder().decode(payload);
       headers["Content-Type"]="application/json";
     }
     const result=await fetch(base+"/"+path+url.search,{method:request.method,headers,body,cache:"no-store",signal:AbortSignal.timeout(path.startsWith("rooms/")&&(path.endsWith("/start")||path.endsWith("/more"))?65000:path==="title-batch"?25000:6500)});
-    return new Response(result.body,{status:result.status,headers:{"Content-Type":result.headers.get("content-type")??"application/json","Cache-Control":"no-store"}});
+    return new Response(result.body,{status:result.status,headers:{"Content-Type":result.headers.get("content-type")??"application/json","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
   } catch {
     return Response.json({message:"Serviço temporariamente indisponível. Tente novamente."},{status:503});
   }

@@ -125,3 +125,11 @@ Consulte [Implantação, Funnel e recuperação](deploy/README.md) para configur
 Em **Meu perfil > Minha conta**, o usuário pode pausar, reativar ou excluir a conta mediante confirmação da senha. Pausar oculta o perfil e bloqueia interações; novo login permite reativar. Excluir é uma exclusão lógica: marca a conta como deletada, oculta o perfil e bloqueia login, sem apagar registros. As operações invalidam sessões e links de e-mail anteriores.
 
 O seletor **Aparência** oferece Escuro, Claro e Sistema. A preferência fica salva no navegador; Sistema acompanha a aparência do dispositivo.
+
+### Anexos de feedback
+
+Relatos aceitam até quatro imagens JPG, PNG ou WebP (entrada de até 15 MB cada), convertidas no navegador para JPEG de até 1 MB. O servidor valida dimensões e conteúdo e regrava a imagem sem metadados. Anexos e previews só ficam disponíveis ao autor antes do envio e aos administradores depois dele.
+
+A cota global é de 4.000.000.000 bytes de imagens armazenadas no banco. Ao receber novos anexos, os mais antigos são removidos até liberar espaço, preservando o texto dos relatos. Uma trava transacional mantém a cota mesmo com uploads simultâneos. Resolver um relato remove seus anexos; resolver um bug também agenda um agradecimento por e-mail, uma vez por relato. A fila tenta novamente em falhas SMTP e ignora contas deletadas ou sem e-mail. Em uma interrupção entre a aceitação SMTP e a confirmação no banco, uma retentativa pode duplicar o agradecimento.
+
+A cota mede conteúdo de imagens, não o tamanho físico de PostgreSQL, WAL ou backups. Exclusões permitem reaproveitar espaço no banco, mas não garantem redução imediata do arquivo no disco. Backups existentes podem conter anexos já removidos. Não há limpeza retroativa de backups por esta funcionalidade.
