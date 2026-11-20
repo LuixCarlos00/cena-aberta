@@ -284,3 +284,6 @@ button{cursor:pointer;color:inherit;background:var(--surface);border:1px solid v
 :root[data-theme=light] .avatar-option{background:var(--surface);color:var(--text);border-color:var(--line)}
 :root[data-theme=light] .avatar-option:hover{background:#e0e5ec;border-color:#8994a5}
 :root[data-theme=light] .avatar-option[aria-pressed=true]{background:#f6e8d0;color:#684509;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
+:root[data-theme=light] .icon-tooltip{background:var(--panel);color:var(--text);border-color:#9aa6b6;box-shadow:0 6px 20px #20273626}
