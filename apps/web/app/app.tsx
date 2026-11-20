@@ -3,6 +3,7 @@ import {useCallback,useEffect,useRef,useState,type ReactNode} from "react";
 import {signIn,signOut} from "next-auth/react";
 import {useRouter} from "next/navigation";
 import {EpisodeRatings} from "./episode-ratings";
+import {CardTitle} from "./card-title";
 import {ThemePicker} from "./theme-picker";
 import {CatalogDrawer} from "./catalog-drawer";
 import {FilmRanking,rankingCategories} from "./film-ranking";
@@ -251,7 +252,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
     const work=known[id];
     return <button className="card" onClick={()=>open(id)}>
       {work?<Poster title={work}/>:<div className="poster"><span>{label(id)}</span></div>}
-      <strong>{label(id)}</strong>
+      <CardTitle>{label(id)}</CardTitle>
       {work&&<small>{work.year} · {work.anime?"Anime":work.format==="movie"?"Filme":"Série"}</small>}
     </button>;
   }
@@ -299,7 +300,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
           <form className="search" onSubmit={event=>{event.preventDefault();setSearch(query.trim());setPage(1);}}>
             <input type="search" aria-label="Buscar por título" placeholder="Buscar por título…" maxLength={100} value={query} onChange={event=>{setQuery(event.target.value);if(!event.target.value){setSearch("");setPage(1);}}}/><button className="primary">Buscar</button></form></div><div className="reel" aria-hidden="true"><i/><i/><i/></div></section>
           <section aria-busy={loading}><div className="section-heading"><h2>{search?"Resultados da busca":categories.find(([id])=>id===tab)?.[1]}</h2>{demo&&<span className="muted">Catálogo fictício</span>}</div>
-          {loading?<p>Carregando catálogo…</p>:titles.length?<div className="grid">{titles.map(item=><article className="catalog-card" key={item.id}><button className="card" onClick={()=>open(item.id)}><Poster title={item}/><strong>{item.name}</strong><small>{item.year} · {item.anime?"Anime":item.format==="movie"?"Filme":"Série"}</small></button></article>)}</div>:<p>Nenhuma obra nesta página.</p>}
+          {loading?<p>Carregando catálogo…</p>:titles.length?<div className="grid">{titles.map(item=><article className="catalog-card" key={item.id}><button className="card" onClick={()=>open(item.id)}><Poster title={item}/><CardTitle>{item.name}</CardTitle><small>{item.year} · {item.anime?"Anime":item.format==="movie"?"Filme":"Série"}</small></button></article>)}</div>:<p>Nenhuma obra nesta página.</p>}
           {(page>1||more)&&<div className="row pagination"><button disabled={page===1} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page}</span><button disabled={!more} onClick={()=>setPage(page+1)}>Próxima</button></div>}</section>
         </>:<section><div className="section-heading profile-heading"><div className="row">{current?.profile&&<ProfileAvatar name={current.profile.name} avatar={current.profile.avatar}/>}<div><h1>{current?.profile?.name??"Meu perfil"}</h1>{current?.profile&&<span className="muted">@{current.profile.username}</span>}</div></div></div>
           {!owned&&current?.profile&&<ProfileFriend key={current.profile.username} username={current.profile.username}/>}
@@ -312,7 +313,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
             const saved=known[item.title];
             return <button key={item.title} className="card" onClick={()=>open(item.title)}>
               {saved?<Poster title={saved}/>:<div className="poster art-0"><span>{label(item.title)}</span></div>}
-              <strong>{label(item.title)}</strong>
+              <CardTitle>{label(item.title)}</CardTitle>
               {saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
             </button>;
           })}</div>{!current.library?.some(item=>item.interest)&&<p className="muted">Nenhuma obra salva.</p>}</section>}
@@ -320,7 +321,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
             const saved=known[item.title];
             return <article className="catalog-card" key={item.title}><button className="card" onClick={()=>open(item.title)}>
               {saved?<Poster title={saved}/>:<div className="poster art-0"><span>{label(item.title)}</span></div>}
-              <strong>{label(item.title)}</strong>{saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
+              <CardTitle>{label(item.title)}</CardTitle>{saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
             </button>{item.rewatching&&<small>Vi novamente</small>}{saved?.format==="movie"&&item.rating&&<span>★ {displayRating(item.rating)}</span>}{item.review&&<Spoiler hidden={item.spoiler}>{item.review}</Spoiler>}</article>;
           })}</div>{!current.library?.some(item=>item.watched||item.rating||item.review)&&<p className="muted">Nenhuma avaliação ou obra vista.</p>}</section>}
           {showSection("diary")&&<section className="panel"><div className="section-heading"><h2>Diário</h2>{sectionVisibility("diary","diário")}</div><div className="grid profile-card-strip diary-cards">{current.viewings?.map(item=><div className="catalog-card" key={item.id}>{savedCard(item.title)}<span>{item.watched_on?.split("-").reverse().join("/")??"Data não informada"}{item.watched_at&&<> às <time dateTime={item.watched_at}>{sessionTime.format(new Date(item.watched_at))}</time></>}{item.rewatch?" · Revisto":""}</span>{owned&&<div className="diary-actions"><button type="button" aria-label={"Editar sessão de "+label(item.title)} title="Editar sessão" onClick={()=>setViewing(item)}><UiIcon name="edit"/></button><button type="button" aria-label={"Excluir sessão de "+label(item.title)} title="Excluir sessão" disabled={busy} onClick={()=>action(()=>api("me/viewings/"+item.id,"DELETE"),"Registro excluído.")}><UiIcon name="trash"/></button></div>}</div>)}</div>{!current.viewings?.length&&<p className="muted">Nenhuma sessão registrada.</p>}</section>}
@@ -370,7 +371,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
             </div>)}
           </>:<CommunityScore average={demoSum/demoEvaluations.length/2} count={demoEvaluations.length} demo/>}
           {title.format!=="tv"&&demoEvaluations.filter(item=>item.review).map(item=><article className="record" key={item.name}>
-            <div className="row review-author"><ProfileAvatar name={item.name}/><strong>{item.name}</strong><span className="review-score">★ {displayRating(item.rating)}</span></div>
+            <div className="row review-author"><ProfileAvatar name={item.name}/><CardTitle>{item.name}</CardTitle><span className="review-score">★ {displayRating(item.rating)}</span></div>
             <Spoiler hidden={item.spoiler}>{item.review}</Spoiler>
           </article>)}
         </section>}

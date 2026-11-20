@@ -276,3 +276,7 @@ button{cursor:pointer;color:inherit;background:var(--surface);border:1px solid v
 :root[data-theme=light] .nav .nav-profile .profile-initial{background:#e6d9c3;color:#553b16}
 :root[data-theme=light] .nav .nav-profile .profile-avatar{border-color:#b1a38d}
 :root[data-theme=light] .nav .nav-profile:hover,:root[data-theme=light] .nav .nav-profile[aria-current=page]{background:#f6e8d0;border-color:#b38a48;color:#684509}
+
+.card-title{display:block;width:100%;min-width:0;overflow:hidden;white-space:nowrap;text-align:left}.card-title>span{display:block;width:max-content;max-width:none}.card-title[data-overflow=true]>span{animation:card-title-marquee var(--title-duration) ease-in-out infinite alternate}.card:hover .card-title>span,.card:focus-visible .card-title>span{animation-play-state:paused}
+@keyframes card-title-marquee{0%,15%{transform:translateX(0)}85%,100%{transform:translateX(var(--title-distance))}}
+@media(prefers-reduced-motion:reduce){.card-title{white-space:normal;overflow-wrap:anywhere}.card-title>span{width:auto}.card-title[data-overflow=true]>span{animation:none;transform:none}}
