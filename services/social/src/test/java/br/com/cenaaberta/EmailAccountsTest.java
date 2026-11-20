@@ -116,11 +116,11 @@ class EmailAccountsTest {
         assertThrows(ResponseStatusException.class,()->service.confirm("reset",new EmailAccounts.Input(null,"NoSymbols1234",reset)));
         assertEquals(address,service.confirm("reset",new EmailAccounts.Input(null,"StrongPass12!",reset)).email());
     }
-    @Test void resetRequiresExistingAccount() {
+    @Test void unknownResetAddressReceivesGenericSuccessWithoutMailOrToken() {
         var service=service(false, "");
-        var error=assertThrows(ResponseStatusException.class,()->service.request("reset",new EmailAccounts.Input(address,null,null)));
-        assertEquals(404,error.getStatusCode().value());
+        assertDoesNotThrow(()->service.request("reset",new EmailAccounts.Input(address,null,null)));
         verifyNoInteractions(mail);
+        assertEquals(0,db.queryForObject("select count(*) from email_link",Integer.class));
     }
     @Test void resetCooldownSurvivesServiceRestartAndExpiresAfterTwoMinutes() {
         var service=service(false, "");

@@ -80,7 +80,7 @@ class EmailAccounts {
         String email=email(input.email());
         if(purpose.equals("register") && !canRegister(email)) return;
         boolean exists=account(email).isPresent();
-        if(purpose.equals("reset")&&!exists)throw error(HttpStatus.NOT_FOUND,"Não há conta criada com este e-mail.");
+        if(purpose.equals("reset")&&!exists)return;
         if(purpose.equals("register")&&exists)return;
         var now=OffsetDateTime.now(ZoneOffset.UTC);
         byte[] bytes=new byte[32]; random.nextBytes(bytes);

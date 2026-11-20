@@ -340,8 +340,9 @@ try {
   const deniedMessage=await outsiderRequest.json();
   assert.equal((soc.log??"").includes("#register="),false,"Endereço não convidado recebeu link.");
   const missingReset=await fetch(web+"/api/accounts/reset",{method:"POST",headers:{Origin:web,"Content-Type":"application/json"},body:JSON.stringify({email})});
-  assert.equal(missingReset.status,404);
-  assert.match((await missingReset.json()).message,/Não há conta/);
+  assert.equal(missingReset.status,202);
+  assert.deepEqual(await missingReset.json(),{message:"Link de recuperação enviado. Confira também a pasta de spam.",retryAfterSeconds:120});
+  assert.equal((soc.log??"").includes("#reset="),false,"Endereço sem conta recebeu link de recuperação.");
   const token=await link("register");
   const repeated=await fetch(web+"/api/accounts/register",{method:"POST",headers:{Origin:web,"Content-Type":"application/json"},body:JSON.stringify({email})});
   assert.equal(repeated.status,202);
