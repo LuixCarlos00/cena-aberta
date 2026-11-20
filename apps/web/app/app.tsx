@@ -55,6 +55,7 @@ const categories=[["all","Explorar"],["movie","Filmes"],["tv","Séries"],["anime
 const labels:Record<string,string>={"demo-ultimo-rolo":"O Último Rolo","demo-mare-alta":"Maré Alta","demo-lua-de-papel":"Lua de Papel","demo-neon-norte":"Neon Norte","demo-fim-da-linha":"Fim da Linha","demo-arquipelago":"Arquipélago"};
 const empty:Entry={title:"",watched:false,interest:false,rewatching:false,rating:null,review:null,spoiler:false,version:0};
 const displayRating=(rating:number)=> (rating/2).toLocaleString("pt-BR");
+const sessionDate=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Sao_Paulo",day:"2-digit",month:"2-digit",year:"numeric"});
 const sessionTime=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Sao_Paulo",hour:"2-digit",minute:"2-digit"});
 async function api<T>(path:string,method="GET",body?:unknown,key?:string):Promise<T> {
   const headers:Record<string,string>={};
@@ -389,7 +390,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
       }}>
         {pendingViewing&&<>
           <h2 id="session-heading">Registrar sessão?</h2>
-          <p>Adicionar uma revisualização de <strong>{pendingViewing.name}</strong> ao <strong className="profile-section-name">Diário</strong>, às {sessionTime.format(new Date(pendingViewing.watchedAt))}?</p>
+          <p>Adicionar uma revisualização de <strong>{pendingViewing.name}</strong> ao <strong className="profile-section-name">Diário</strong>, em {sessionDate.format(new Date(pendingViewing.watchedAt))}?</p>
           {error&&<p role="alert" className="message error">{error}</p>}
           <div className="row">
             <button type="button" autoFocus disabled={busy} onClick={()=>{setPendingViewing(null);setError("");}}>Cancelar</button>
