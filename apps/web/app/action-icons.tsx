@@ -30,7 +30,7 @@ function Icon({kind,active}:{kind:Kind;active:boolean}) {
 
 export function IconAction({kind,active,label,disabled,onClick}:{kind:Exclude<Kind,"spoiler">;active:boolean;label:string;disabled:boolean;onClick:()=>void}) {
   const id=useId();
-  const caption={watched:"Já assisti",interest:"Vou ver",rewatching:"Vi novamente",visibility:null}[kind];
+  const caption={watched:"Já vi",interest:"Vou ver",rewatching:"Vi novamente",visibility:null}[kind];
   return <span className="icon-control" data-kind={kind}>
     <button type="button" className="icon-action" aria-label={label} aria-describedby={id} aria-pressed={active} disabled={disabled} onClick={onClick}><Icon kind={kind} active={active}/></button>
     {caption&&<span className="touch-icon-caption" aria-hidden="true">{caption}</span>}
@@ -38,13 +38,13 @@ export function IconAction({kind,active,label,disabled,onClick}:{kind:Exclude<Ki
   </span>;
 }
 
-export function SpoilerControl({initial,disabled}:{initial:boolean;disabled:boolean}) {
+export function SpoilerControl({initial,disabled,onChange}:{initial:boolean;disabled:boolean;onChange?:(value:boolean)=>void}) {
   const [active,setActive]=useState(initial);
   const id=useId();
-  const label=active?"Contém spoiler — ocultar resenha até o leitor revelar":"Sem spoiler — resenha visível";
+  const label=active?"Contém spoiler":"Sem spoiler";
   return <span className="icon-control spoiler-icon" data-kind="spoiler">
     <label className={"icon-action"+(active?" is-active":"")}>
-      <input type="checkbox" name="spoiler" checked={active} onChange={event=>setActive(event.target.checked)} disabled={disabled} aria-label="Contém spoiler" aria-describedby={id}/>
+      <input type="checkbox" name="spoiler" checked={active} onChange={event=>{setActive(event.target.checked);onChange?.(event.target.checked);}} disabled={disabled} aria-label={label} aria-describedby={id}/>
       <Icon kind="spoiler" active={active}/>
     </label>
     <span className="icon-tooltip" role="tooltip" id={id}>{label}</span>

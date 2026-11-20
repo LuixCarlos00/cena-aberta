@@ -103,4 +103,47 @@ class EmailAccountsTest {
         var error=assertThrows(IllegalArgumentException.class,()->service(true,"invalid private address"));
         assertFalse(error.getMessage().contains("private address"));
     }
+    @Test void passwordPolicyAppliesToRegistrationAndResetWithoutConsumingToken() {
+        var service=service(true,address);
+        String token=link(service,"register",address);
+        for(String weak:new String[]{"Aa1!short","lowercase123!","UPPERCASE123!","NoDigitsHere!","NoSymbols1234"}) {
+            var error=assertThrows(ResponseStatusException.class,()->service.confirm("register",new EmailAccounts.Input(null,weak,token)));
+            assertEquals(400,error.getStatusCode().value());
+            assertEquals(0,accounts());
+        }
+        service.confirm("register",confirmation(token));
+        String reset=link(service,"reset",address);
+        assertThrows(ResponseStatusException.class,()->service.confirm("reset",new EmailAccounts.Input(null,"NoSymbols1234",reset)));
+        assertEquals(address,service.confirm("reset",new EmailAccounts.Input(null,"StrongPass12!",reset)).email());
+    }
+    @Test void resetRequiresExistingAccount() {
+        var service=service(false, "");
+        var error=assertThrows(ResponseStatusException.class,()->service.request("reset",new EmailAccounts.Input(address,null,null)));
+        assertEquals(404,error.getStatusCode().value());
+        verifyNoInteractions(mail);
+    }
+    @Test void resetCooldownSurvivesServiceRestartAndExpiresAfterTwoMinutes() {
+        var service=service(false, "");
+        service.confirm("register",confirmation(link(service,"register",address)));
+        link(service,"reset",address);
+        db.update("update email_link set sent_at=DATEADD('SECOND',-70,CURRENT_TIMESTAMP) where purpose='reset'");
+        clearInvocations(mail);
+        var restarted=service(false, "");
+        var error=assertThrows(ResponseStatusException.class,()->restarted.request("reset",new EmailAccounts.Input(address,null,null)));
+        assertEquals(429,error.getStatusCode().value());
+        assertTrue(Integer.parseInt(error.getHeaders().getFirst("Retry-After"))>0);
+        verifyNoInteractions(mail);
+        db.update("update email_link set sent_at=DATEADD('SECOND',-121,CURRENT_TIMESTAMP) where purpose='reset'");
+        link(restarted,"reset",address);
+    }
+    @Test void smtpFailureIsReportedAndDoesNotBlockRetry() {
+        var service=service(false, "");
+        service.confirm("register",confirmation(link(service,"register",address)));
+        doThrow(new org.springframework.mail.MailSendException("mock failure")).when(mail).send(any(SimpleMailMessage.class));
+        var error=assertThrows(ResponseStatusException.class,()->service.request("reset",new EmailAccounts.Input(address,null,null)));
+        assertEquals(503,error.getStatusCode().value());
+        assertEquals(0,db.queryForObject("select count(*) from email_link where purpose='reset'",Integer.class));
+        doNothing().when(mail).send(any(SimpleMailMessage.class));
+        link(service,"reset",address);
+    }
 }

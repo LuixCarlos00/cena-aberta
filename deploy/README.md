@@ -1,14 +1,24 @@
-# Alpha na Oracle com Tailscale Funnel
+# Alpha com Tailscale Funnel
 
 ## Estado e requisitos
 
 O Compose mantém dois PostgreSQL persistentes e publica somente o frontend em `127.0.0.1:3000`. Os serviços reiniciam com o Docker e os logs têm rotação. O comando `up` espera pela saúde do frontend e dos dois serviços. O cadastro por convite e o SMTP são obrigatórios neste ambiente.
 
-A VM ainda precisa ser provisionada e validada na conta Oracle. Use Ubuntu ARM64, shape `VM.Standard.A1.Flex`, na região principal da conta, dentro da cota Always Free disponível. A documentação consultada em 18/11/2026 informa 2 OCPUs e 12 GB equivalentes. Confira o saldo já usado por outras VMs e volumes; não aceite recursos pagos como alternativa automática à falta de capacidade. VMs ociosas podem ser recolhidas.
+A execução pode usar Docker Desktop no Windows ou um servidor Linux. A infraestrutura deve ser provisionada e validada pelo responsável pela instalação; o projeto não depende de um provedor específico. O roteiro para Oracle abaixo é uma opção de hospedagem.
 
-Fontes: [Oracle Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm), [Docker no Ubuntu](https://docs.docker.com/engine/install/ubuntu/), [requisitos do Funnel](https://tailscale.com/docs/features/tailscale-funnel), [CLI Funnel](https://tailscale.com/docs/reference/tailscale-cli/funnel).
+Referências: [Docker no Ubuntu](https://docs.docker.com/engine/install/ubuntu/), [requisitos do Funnel](https://tailscale.com/docs/features/tailscale-funnel), [CLI Funnel](https://tailscale.com/docs/reference/tailscale-cli/funnel).
 
-## Preparar o servidor
+## Hospedar no PC Windows
+
+A alpha também pode rodar localmente, sem contratar uma VM. Instale Docker Desktop (contêineres Linux), Python 3 e Tailscale. O PC precisa ficar ligado, conectado e sem suspensão durante os testes; o Docker Desktop precisa estar em execução. O reinício automático dos contêineres depende do Docker estar ativo.
+
+Autentique o Tailscale pelo aplicativo ou com `tailscale up --hostname=cena-aberta-alpha`. Consulte `tailscale status --json` para obter `Self.DNSName`. Configure `ALPHA_URL` em `deploy/.env` com essa origem HTTPS e preencha os convidados e credenciais conforme o modelo. Esse arquivo é privado e ignorado pelo Git. Use `python` no lugar de `python3` nos comandos abaixo; no Windows, execute os comandos Tailscale sem `sudo`.
+
+Execute `python deploy/alpha.py check`, `python deploy/alpha.py up` e, depois de verificar os serviços, `tailscale funnel --bg 3000`. Se o Tailscale solicitar habilitação de HTTPS/Funnel na conta, conclua pelo link oficial exibido e repita o comando. Publique apenas a porta do frontend. Para suspender a publicação, execute `tailscale funnel --https=443 off`.
+
+Os volumes Docker desta alpha são separados dos dados do modo de desenvolvimento; contas e resenhas locais não são migradas automaticamente. Não apague volumes ao atualizar. Faça backups e mantenha uma cópia privada fora deste PC. Valide acesso por uma rede externa, convites, e-mails e login antes de distribuir o link.
+
+## Preparar o servidor Oracle
 
 1. Crie a VM e guarde sua chave SSH fora do repositório. Restrinja a entrada SSH ao seu endereço de administração. Não abra 3000, 8181, 8182 ou 5432 na internet. Permita saída para atualizações, TMDB, SMTP e Tailscale.
 2. Instale Git, Python 3, Docker Engine e o plugin Docker Compose pelo guia oficial para Ubuntu. Habilite o serviço Docker no boot. Use uma conta autorizada a acessar o Docker.
@@ -59,3 +69,13 @@ Para recuperar após perda da VM, crie um ambiente separado com o commit do mani
 Faça backup e copie-o para fora antes de atualizar. Use `git pull --ff-only` e `python3 deploy/alpha.py up`. Confira saúde, migrações e fluxos. Para rollback com migração incompatível, recupere o par de bancos e o commit correspondente em ambiente separado; apenas trocar a imagem não reverte o banco. Nunca use `docker compose down -v` no ambiente real.
 
 O GitHub Actions executa builds e testes da aplicação e um job ARM que compila o Compose, verifica saúde, faz backup e restaura em isolamento com dados descartáveis. SMTP real, TMDB real, acesso externo e disponibilidade da Oracle precisam ser validados no servidor.
+
+## Atualizar a lista de convidados
+
+Edite somente `INVITED_EMAILS` no arquivo privado. A aplicação lê essa variável ao criar o container. Reiniciar um container existente não carrega alterações do arquivo; recrie o serviço com os mesmos arquivos da implantação:
+
+```shell
+docker compose --env-file deploy/.env -f compose.yaml -f compose.alpha.yaml up -d --no-deps --wait social
+```
+
+A mensagem de cadastro é genérica: endereços não autorizados e contas já existentes não recebem novo link de cadastro. Na recuperação de senha, somente contas existentes recebem o link e o reenvio exige dois minutos. Não publique listas de convidados, credenciais ou logs contendo links de acesso.

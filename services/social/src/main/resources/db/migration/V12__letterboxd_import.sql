@@ -1,0 +1,1 @@
+CREATE TABLE letterboxd_receipt(actor varchar(160) REFERENCES profile(actor), fingerprint varchar(64), created timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(actor,fingerprint));

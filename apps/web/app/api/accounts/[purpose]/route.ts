@@ -10,9 +10,11 @@ export async function POST(request:Request,{params}:{params:Promise<{purpose:str
     const body=await request.text();
     if(body.length>2048)return Response.json({message:"Solicitação muito grande."},{status:413});
     const response=await accountRequest(purpose,{method:"POST",body});
-    if(response.status===202)return Response.json({message:"Se o endereço puder receber o link, ele chegará por e-mail."},{status:202});
+    if(response.status===202)return Response.json({message:purpose==="reset"?"Link de recuperação enviado. Confira também a pasta de spam.":"Link de cadastro enviado por e-mail.",...(purpose==="reset"?{retryAfterSeconds:120}:{})},{status:202});
     const error=await response.json().catch(()=>null);
-    return Response.json({message:error?.message??"Serviço de e-mail indisponível."},{status:response.status});
+    const retryAfter=response.headers.get("Retry-After");
+    const seconds=retryAfter&&/^\d+$/.test(retryAfter)?Number(retryAfter):null;
+    return Response.json({message:error?.message??"Serviço de e-mail indisponível.",...(seconds?{retryAfterSeconds:seconds}:{})},{status:response.status,headers:seconds?{"Retry-After":String(seconds)}:{}});
   } catch {
     return Response.json({message:"Serviço de e-mail indisponível."},{status:503});
   }

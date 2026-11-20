@@ -12,22 +12,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 final class ProfileFields {
     private static final String JPEG = "data:image/jpeg;base64,";
-    private static final Set<String> AVATAR_PRESETS = Set.of("preset:cinema","preset:estrelas","preset:fantasia","preset:espaco","preset:misterio","preset:animacao");
+    private static final Set<String> AVATAR_PRESETS = Set.of("preset:cinema","preset:estrelas","preset:fantasia","preset:espaco","preset:misterio","preset:animacao","preset:ninja","preset:samurai","preset:robo","preset:mago","preset:series","preset:retro");
     private ProfileFields() {}
 
-    static String cpf(String value) {
-        String input=value.strip();
-        if(!input.matches("[0-9]{11}|[0-9]{3}\\.[0-9]{3}\\.[0-9]{3}-[0-9]{2}"))
-            throw invalidCpf();
-        String digits=input.replaceAll("[.-]","");
-        if(digits.chars().distinct().count()==1) throw invalidCpf();
-        for(int length=9;length<=10;length++) {
-            int sum=0;
-            for(int i=0;i<length;i++) sum+=(digits.charAt(i)-'0')*(length+1-i);
-            int check=(sum*10)%11;
-            if((check==10?0:check)!=digits.charAt(length)-'0') throw invalidCpf();
-        }
-        return digits;
+    static String username(String value) {
+        if(value==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Informe um usuário.");
+        String normalized=java.text.Normalizer.normalize(value,java.text.Normalizer.Form.NFKC).strip().toLowerCase(java.util.Locale.ROOT).replaceAll(" +"," ");
+        if(normalized.length()<3||normalized.length()>32||normalized.codePoints().anyMatch(c -> Character.isISOControl(c)||Character.getType(c)==Character.FORMAT))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Use de 3 a 32 caracteres visíveis. Espaços e símbolos são permitidos.");
+        return normalized;
     }
 
     static String avatar(String value) {
@@ -51,10 +44,6 @@ final class ProfileFields {
                 } finally { reader.dispose(); }
             }
         } catch(IOException | IllegalArgumentException failure) { throw invalidAvatar(); }
-    }
-
-    private static ResponseStatusException invalidCpf() {
-        return new ResponseStatusException(HttpStatus.BAD_REQUEST,"Informe um CPF válido.");
     }
 
     private static ResponseStatusException invalidAvatar() {

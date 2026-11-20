@@ -134,6 +134,66 @@ public class Catalog {
 
 
 
+    private static final Map<Integer,String> GENRES=Map.ofEntries(Map.entry(28,"Ação"),Map.entry(12,"Aventura"),Map.entry(16,"Animação"),Map.entry(35,"Comédia"),Map.entry(80,"Crime"),Map.entry(99,"Documentário"),Map.entry(18,"Drama"),Map.entry(10751,"Família"),Map.entry(14,"Fantasia"),Map.entry(36,"História"),Map.entry(27,"Terror"),Map.entry(10402,"Música"),Map.entry(9648,"Mistério"),Map.entry(10749,"Romance"),Map.entry(878,"Ficção científica"),Map.entry(10770,"Cinema TV"),Map.entry(53,"Thriller"),Map.entry(10752,"Guerra"),Map.entry(37,"Faroeste"));
+    record Suggestions(List<String> exclude,List<String> watched,List<String> liked,int page,Integer genre,List<Integer> genres) {}
+    private static List<Integer> selectedGenres(Integer genre,List<Integer> genres) {
+        var selected=genres!=null?genres:genre==null||genre==0?List.<Integer>of():List.of(genre);
+        if(selected.size()>GENRES.size()||selected.stream().anyMatch(g->g==null||!GENRES.containsKey(g)))throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        return selected.stream().distinct().toList();
+    }
+    @PostMapping("/suggestions")
+    Map<String,Object> suggestions(@RequestBody Suggestions input) {
+        if(input.page()<1||input.page()>499||input.exclude()==null||input.exclude().size()>1000||input.watched()==null||input.watched().size()>10000||input.liked()==null||input.liked().size()>1000)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        var genres=selectedGenres(input.genre(),input.genres());
+        var excluded=new HashSet<>(input.exclude());var watched=new HashSet<>(input.watched());
+        var preferred=new HashSet<String>();
+        for(String id:input.liked().stream().distinct().limit(40).toList()) {
+            var rows=db.queryForList("select details from title where id=?",String.class,id);
+            for(String json:rows)if(json!=null)try {for(var preferredGenre:mapper.readTree(json).path("genres"))preferred.add(preferredGenre.asText());}catch(Exception ignored){}
+        }
+        if(token.isBlank())return Map.of("items",fixtures.stream().filter(t->t.format().equals("movie")&&!excluded.contains(t.id())&&(genres.isEmpty()||genres.stream().anyMatch(g->demoDetails(t.id()).genres().contains(GENRES.get(g))))).limit(20).toList(),"nextPage",input.page()+2);
+        var buckets=new ArrayList<List<JsonNode>>();
+        String today=java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+        String year=java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusMonths(12).toString();
+        String[] sorts={"primary_release_date.desc&primary_release_date.gte="+year+"&vote_count.gte=30","vote_average.desc&vote_count.gte=300","popularity.desc&vote_count.gte=30"};
+        for(String sort:sorts){
+            var bucket=new ArrayList<JsonNode>();
+            for(int page=input.page();page<input.page()+2;page++)for(var item:remote("/discover/movie?include_adult=false&include_video=false&primary_release_date.lte="+today+"&sort_by="+sort+"&page="+page+(genres.isEmpty()?"":"&with_genres="+genres.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining("%7C")))).path("results")) {
+                String date=item.path("release_date").asText();
+                if(!date.isBlank()&&date.compareTo(today)<=0&&!item.path("adult").asBoolean()&&!excluded.contains("tmdb-movie-"+item.path("id").asLong()))bucket.add(item);
+            }
+            bucket.sort(java.util.Comparator.<JsonNode>comparingDouble(item->{
+                String id="tmdb-movie-"+item.path("id").asLong();
+                double votes=item.path("vote_count").asDouble(),rating=item.path("vote_average").asDouble();
+                double weighted=(votes*rating+300*6.5)/(votes+300);
+                // Cached genre affinity is a bonus; unseen movies always take precedence.
+                boolean affinity=false;
+                for(String json:db.queryForList("select details from title where id=?",String.class,id))if(json!=null)try{for(var g:mapper.readTree(json).path("genres"))if(preferred.contains(g.asText()))affinity=true;}catch(Exception ignored){}
+                return (watched.contains(id)?0:100)+weighted+(affinity?1.5:0);
+            }).reversed());
+            buckets.add(bucket);
+        }
+        var result=new ArrayList<Title>();var selected=new HashSet<>(excluded);
+        int[] quotas={8,8,4};
+        for(int b=0;b<3;b++){int taken=0;for(var item:buckets.get(b)){Title title=mapped("movie",item);if(selected.add(title.id())){storeSummary(title);result.add(title);if(++taken==quotas[b])break;}}}
+        for(var bucket:buckets)for(var item:bucket){if(result.size()>=20)break;Title title=mapped("movie",item);if(selected.add(title.id())){storeSummary(title);result.add(title);}}
+        Collections.shuffle(result);
+        return Map.of("items",result,"nextPage",input.page()+2);
+    }
+
+    @GetMapping("/releases") List<Title> releases(){
+        if(token.isBlank())return List.of();
+        String today=java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+        String since=java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(90).toString();
+        var result=new ArrayList<Title>();
+        for(var item:remote("/discover/movie?include_adult=false&include_video=false&region=BR&with_release_type=2%7C3&release_date.gte="+since+"&release_date.lte="+today+"&sort_by=popularity.desc").path("results")){
+            if(item.path("adult").asBoolean()||item.path("poster_path").asText("").isBlank()||item.path("poster_path").isNull())continue;
+            result.add(mapped("movie",item));if(result.size()==6)break;
+        }
+        return result;
+    }
+
     @GetMapping("/titles")
 
     Map<String,Object> titles(@RequestParam(defaultValue="") String query, @RequestParam(defaultValue="all") String type,
@@ -174,7 +234,7 @@ public class Catalog {
 
                 Title title = mapped(format,item);
 
-                if (!type.equals("anime") || title.anime()) found.add(title);
+                if (!type.equals("anime") || title.anime()) { storeSummary(title); found.add(title); }
 
             }
 
@@ -356,8 +416,17 @@ public class Catalog {
 
 
 
-    @GetMapping("/title-batch") List<Title> batch(@RequestParam List<String> ids) {
+    private void storeSummary(Title title) {
+        if(db.queryForObject("select count(*) from title where id=?",Integer.class,title.id())>0)return;
+        try {
+            db.update("insert into title(id,format,anime,name,original,release_year,summary,poster) values(?,?,?,?,?,?,?,?)",
+                title.id(),title.format(),title.anime(),title.name(),title.original(),title.year(),title.summary(),title.poster());
+        } catch(org.springframework.dao.DuplicateKeyException concurrentInsert) { /* Another request already cached it. */ }
+    }
 
+    @GetMapping("/title-batch") List<Title> batch(@RequestParam List<String> ids,@RequestParam(defaultValue="0") int genre,@RequestParam(required=false) List<Integer> genres) {
+
+        var selected=selectedGenres(genre,genres);
         if (ids.size() > 30) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
 
         var output = new ArrayList<Title>();
@@ -380,6 +449,31 @@ public class Catalog {
 
         }
 
+        var missing=storedIds.stream().filter(id -> output.stream().noneMatch(t -> t.id().equals(id))).toList();
+        if(!missing.isEmpty()&&!token.isBlank()) {
+            try(var executor=java.util.concurrent.Executors.newFixedThreadPool(6)) {
+                var tasks=missing.stream().map(id -> executor.submit(() -> {
+                    try { return detail(id); }
+                    catch(ResponseStatusException failure) {
+                        if(failure.getStatusCode().value()==404)return null;
+                        throw failure;
+                    }
+                })).toList();
+                for(var task:tasks) {
+                    try { Title title=task.get();if(title!=null)output.add(title); }
+                    catch(InterruptedException interrupted) { Thread.currentThread().interrupt();throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Consulta interrompida."); }
+                    catch(java.util.concurrent.ExecutionException failure) { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Não foi possível carregar todos os títulos. Tente novamente."); }
+                }
+            }
+        }
+        if(!selected.isEmpty()) {
+            var filtered=new ArrayList<Title>();
+            try(var executor=java.util.concurrent.Executors.newFixedThreadPool(6)) {
+                var tasks=output.stream().map(t->executor.submit(()->detail(t.id()))).toList();
+                for(var task:tasks)try{var t=task.get();if(t.details()!=null&&selected.stream().anyMatch(g->t.details().genres().contains(GENRES.get(g))))filtered.add(t);}catch(Exception e){if(e instanceof InterruptedException)Thread.currentThread().interrupt();throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Não foi possível verificar os gêneros. Tente novamente.");}
+            }
+            return filtered;
+        }
         return output;
 
     }

@@ -1,7 +1,22 @@
+import {profileState} from "../../../../lib/profile";
 import {getServerSession} from "next-auth";
 import {authOptions} from "../../../../lib/auth";
 
 const routes = [
+  ["PUT", /^rooms\/[a-f0-9-]{36}\/reconsider\/[a-z0-9-]+$/,"social"],
+  ["PUT", /^me\/visibility$/,"social"],
+  ["DELETE", /^rooms\/[a-f0-9-]{36}$/,"social"],
+  ["GET", /^friends(?:\/(?:search|status))?$/,"social"],
+  ["POST", /^friends$/,"social"],
+  ["PUT", /^friends\/[a-f0-9-]{36}$/,"social"],
+  ["PUT", /^rooms\/[a-f0-9-]{36}\/settings$/,"social"],
+  ["GET", /^feedback(?:\/access)?$/,"social"],
+  ["POST", /^feedback$/,"social"],
+  ["PUT", /^feedback\/[a-f0-9-]{36}$/,"social"],
+  ["GET", /^profiles$/,"social"],
+  ["GET", /^rooms(?:\/[a-f0-9-]{36}(?:\/friends)?)?$/,"social"],
+  ["POST", /^rooms(?:\/[a-f0-9-]{36}\/(?:join|invite|start|more|choose\/[a-z0-9-]+))?$/,"social"],
+  ["PUT", /^rooms\/[a-f0-9-]{36}\/votes\/[a-z0-9-]+$/,"social"],
   ["GET", /^titles\/[a-z0-9-]+\/seasons\/[0-9]+$/,"catalog"],
   ["GET", /^me\/episodes\/[a-z0-9-]+(?:\/[0-9]+)?$/,"social"],
   ["PUT", /^me\/episodes\/[a-z0-9-]+\/[0-9]+\/[0-9]+$/,"social"],
@@ -21,6 +36,11 @@ async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>})
   if (!route) return Response.json({message:"Operação não encontrada."},{status:404});
   const session=await getServerSession(authOptions) as {actor?:string} | null;
   if(!session?.actor) return Response.json({message:"Entre para continuar."},{status:401});
+  if(!(request.method==="GET" && path==="me") && !(request.method==="PUT" && path==="me/profile")) {
+    try {
+      if((await profileState(session.actor)).needsProfile)return Response.json({message:"Conclua seu perfil para continuar.",code:"PROFILE_REQUIRED"},{status:403});
+    } catch {return Response.json({message:"Serviço de perfil indisponível."},{status:503});}
+  }
   const url=new URL(request.url);
   if(request.method!=="GET") {
     const origin=process.env.NEXTAUTH_URL ? new URL(process.env.NEXTAUTH_URL).origin : url.origin;
@@ -40,7 +60,7 @@ async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>})
       if(body.length>(path==="me/profile"?105000:16384)) return Response.json({message:"Solicitação muito grande."},{status:413});
       headers["Content-Type"]="application/json";
     }
-    const result=await fetch(base+"/"+path+url.search,{method:request.method,headers,body,cache:"no-store",signal:AbortSignal.timeout(6500)});
+    const result=await fetch(base+"/"+path+url.search,{method:request.method,headers,body,cache:"no-store",signal:AbortSignal.timeout(path.startsWith("rooms/")&&(path.endsWith("/start")||path.endsWith("/more"))?65000:path==="title-batch"?25000:6500)});
     return new Response(result.body,{status:result.status,headers:{"Content-Type":result.headers.get("content-type")??"application/json","Cache-Control":"no-store"}});
   } catch {
     return Response.json({message:"Serviço temporariamente indisponível. Tente novamente."},{status:503});

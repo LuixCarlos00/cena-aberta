@@ -4,8 +4,13 @@ import {signIn,signOut} from "next-auth/react";
 import {useRouter} from "next/navigation";
 import {EpisodeRatings} from "./episode-ratings";
 import {FilmRanking,rankingCategories} from "./film-ranking";
+import type {Release} from "../lib/releases";
+import {Landing} from "./landing";
+import {UiIcon} from "./ui-icons";
 import {StarRating} from "./star-rating";
-import {IconAction,SpoilerControl} from "./action-icons";
+import {ProfileFriend} from "./profile-friend";
+import {ReviewEditor} from "./review-editor";
+import {IconAction} from "./action-icons";
 import {ProfileAvatar,ProfileForm,type Profile,type ProfileInput} from "./profile-form";
 
 type TitleDetails={genres:string[];runtime:number|null;seasons:number|null;episodes:number|null;directors:string[];creators:string[];cast:string[]};
@@ -14,7 +19,8 @@ type Entry={title:string;watched:boolean;interest:boolean;rewatching:boolean;rat
 type Viewing={id:string;title:string;watched_on:string|null;watched_at:string|null;rewatch:boolean};
 type PendingViewing={title:string;name:string;watchedAt:string};
 type Collection={id:string;name:string;description:string;items:string[];version:number};
-type Dashboard={needsProfile?:boolean;profile?:Profile;library?:Entry[];viewings?:Viewing[];lists?:Collection[]};
+type Section="watchlist"|"ranking"|"watched"|"diary"|"lists";
+type Dashboard={visibility?:Record<Section,boolean>;ranking?:{title:string;tier:number}[];needsProfile?:boolean;profile?:Profile;library?:Entry[];viewings?:Viewing[];lists?:Collection[]};
 type Review={username:string;name:string;avatar?:string;rating:number|null;review:string;spoiler:boolean};
 type SeasonAverage={season:number;average:number};
 type Community={seasons?:SeasonAverage[];average:number|null;rating_count:number;episode_rating_count?:number;reviews:Review[]};
@@ -81,7 +87,7 @@ function Spoiler({hidden,children}:{hidden:boolean;children:ReactNode}) {
   const [open,setOpen]=useState(false);
   return <div className="review-text">{hidden&&!open?<button className="small" onClick={()=>setOpen(true)}>Revelar spoiler</button>:children}</div>;
 }
-export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTab="all",profileUser,showCommunityDemo=false}:{authenticated:boolean;inviteLogin:boolean;emailAccounts:boolean;pageTitle?:string;initialTab?:string;profileUser?:string;showCommunityDemo?:boolean}) {
+export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTitle,initialTab="all",profileUser,showCommunityDemo=false}:{releases?:Release[];authenticated:boolean;inviteLogin:boolean;emailAccounts:boolean;pageTitle?:string;initialTab?:string;profileUser?:string;showCommunityDemo?:boolean}) {
   const router=useRouter();
   const [tab,setTab]=useState(initialTab),[query,setQuery]=useState(""),[search,setSearch]=useState(""),[page,setPage]=useState(1);
   const [titles,setTitles]=useState<Title[]>([]),[known,setKnown]=useState<Record<string,Title>>({}),[more,setMore]=useState(false),[demo,setDemo]=useState(false);
@@ -92,6 +98,8 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
   const [editing,setEditing]=useState<Collection|null>(null),[viewing,setViewing]=useState<Viewing|null>(null);
   const [pendingViewing,setPendingViewing]=useState<PendingViewing|null>(null);
   const [credits,setCredits]=useState(false);
+  const [reviewPending,setReviewPending]=useState(false);
+  const [titleRetry,setTitleRetry]=useState(0);
   const detail=useRef<HTMLElement>(null);
   const sessionDialog=useRef<HTMLDialogElement>(null);
   const pendingKeys=useRef(new Map<string,string>());
@@ -121,21 +129,21 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
     if(tab!=="profile"&&tab!=="ranking")return;
     const current=other??data;
     if(!current)return;
-    const ids=[...new Set([...(current.library??[]).map(i=>i.title),...(current.viewings??[]).map(i=>i.title),...(current.lists??[]).flatMap(i=>i.items)])].filter(id=>!known[id]);
+    const ids=[...new Set([...(current.library??[]).map(i=>i.title),...(current.ranking??[]).map(i=>i.title),...(current.viewings??[]).map(i=>i.title),...(current.lists??[]).flatMap(i=>i.items)])].filter(id=>!known[id]);
     if(!ids.length)return;
     let currentRequest=true;
     (async()=>{
       const found:Title[]=[];
       for(let i=0;i<ids.length&&currentRequest;i+=30) {
-        const group=await api<Title[]>("title-batch?ids="+encodeURIComponent(ids.slice(i,i+30).join(","))).catch(()=>[]);
+        const group=await api<Title[]>("title-batch?ids="+encodeURIComponent(ids.slice(i,i+30).join(",")));
         found.push(...group);
       }
       if(currentRequest&&found.length)setKnown(prev=>({...prev,...Object.fromEntries(found.map(item=>[item.id,item]))}));
-    })();
+    })().catch(e=>{if(currentRequest)fail(e);});
     return ()=>{currentRequest=false;};
     // Resolve saved titles when the profile changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[tab,other,data]);
+  },[tab,other,data,titleRetry]);
   async function action(work:()=>Promise<unknown>,message:string) {
     setError("");setNotice("");setBusy(true);
     try {await work();await refresh();setNotice(message);}catch(e){fail(e);}finally{setBusy(false);}
@@ -164,7 +172,7 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
   }
   useEffect(()=>{setTab(initialTab);},[initialTab]);
   useEffect(()=>{if(pageTitle)void loadTitle(pageTitle);},[pageTitle,data?.profile?.username]);
-  useEffect(()=>{if(profileUser&&data?.profile)api<Dashboard>("profiles/"+encodeURIComponent(profileUser)).then(setOther).catch(fail);},[profileUser,data?.profile?.username]);
+  useEffect(()=>{if(profileUser&&data?.profile)api<Dashboard>("profiles?username="+encodeURIComponent(profileUser)).then(setOther).catch(fail);},[profileUser,data?.profile?.username]);
   useEffect(()=>{
     if(!data?.profile||!pageTitle)return;
     let current=true;
@@ -179,7 +187,7 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
     return <fieldset className="card-ranking">
       <legend>Ranking</legend>
       <div className="rank-choices">
-        {rankingCategories.map((name,index)=><button key={name} type="button"
+        {rankingCategories.map((name,index)=>({name,index})).reverse().map(({name,index})=><button key={name} type="button"
           className={"rank-choice rank-tier-"+index} aria-pressed={tier===index} disabled={busy}
           onClick={()=>{
             const next=tier===index?-1:index;
@@ -209,21 +217,11 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
   function visibilityControl(item:Entry) {
     const isPublic=!!item.evaluation_public;
     return <IconAction kind="visibility" active={isPublic} disabled={busy}
-      label={isPublic?"Tornar avaliação privada":"Tornar avaliação pública"}
+      label={isPublic?"Avaliação pública":"Avaliação privada"}
       onClick={()=>void action(async()=>{
         await api("me/library/"+item.title+"/visibility","PUT",{value:!isPublic});
         if(title?.id===item.title)await refreshCommunity(item.title);
       },isPublic?"Avaliação privada.":"Avaliação pública.")}/>;
-  }
-  async function saveReview(id:string,body:{review:FormDataEntryValue|null;spoiler:boolean;version:number}) {
-    setError("");setNotice("");setBusy(true);
-    try {
-      await api("me/library/"+id+"/review","PUT",body);
-      router.push("/?aba=profile");
-    } catch(e) {
-      fail(e);
-      setBusy(false);
-    }
   }
   function confirmViewing() {
     if(!pendingViewing||busy)return;
@@ -235,7 +233,14 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
   }
   const entry=data?.library?.find(item=>item.title===title?.id)??empty;
   const current=other??data;
-  const owned=!other;
+  const owned=!other||other.profile?.username===data?.profile?.username;
+  function sectionVisibility(section:Section|"all",label:string){
+    if(!owned)return null;
+    const visible=section==="all"?Object.values(current?.visibility??{}).length===5&&Object.values(current?.visibility??{}).every(Boolean):!!current?.visibility?.[section];
+    const hint=(visible?"Ocultar ":"Mostrar ")+label+" para visitantes";
+    return <button type="button" className="visibility-toggle" disabled={busy} aria-label={hint} title={hint} aria-pressed={visible} onClick={()=>void action(()=>api("me/visibility","PUT",{section,visible:!visible}),visible?"Seção oculta para visitantes.":"Seção visível para visitantes.")}><UiIcon name={visible?"eye":"hidden"}/></button>;
+  }
+  function showSection(section:Section){return owned||!!current?.visibility?.[section];}
   function saveProfile(input:ProfileInput) {
     void action(()=>api("me/profile","PUT",input),"Perfil salvo.");
   }
@@ -249,12 +254,12 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
   }
   async function visit(username:string) {
     if(pageTitle){router.push("/?usuario="+encodeURIComponent(username));return;}
-    try {const person=await api<Dashboard>("profiles/"+encodeURIComponent(username));changeTab("profile");setOther(person);}catch(e){fail(e);}
+    try {const person=await api<Dashboard>("profiles?username="+encodeURIComponent(username));changeTab("profile");setOther(person);}catch(e){fail(e);}
   }
   return <>
     <header className="top"><div className="wrap nav">
       <button className="logo" onClick={()=>changeTab("all")}><span className="mark">◈</span> cena<span>aberta</span></button>
-      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={tab===id?"nav-active":""} onClick={()=>changeTab(id)}>{name}</button>)}</nav>}
+      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={tab===id?"nav-active":""} onClick={()=>changeTab(id)}>{name}</button>)}<a className="room-nav-link" href="/salas">Escolher juntos</a></nav>}
       <div className={authenticated?"account account-signed-in":"account"}>
         {authenticated?<>
           <button type="button" className="nav-profile" aria-current={tab==="profile"&&!pageTitle&&owned?"page":undefined} onClick={()=>changeTab("profile")}>
@@ -281,21 +286,10 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
       </div>
     </div></header>
     <main className="wrap">
-      {error&&<p role="alert" className="message error">{error}</p>}{notice&&<p role="status" className="message">{notice}</p>}
+      {error&&<p role="alert" className="message error">{error}{(tab==="profile"||tab==="ranking")&&<button className="small" onClick={()=>{setError("");setTitleRetry(n=>n+1);}}>Tentar carregar os cards novamente</button>}</p>}{notice&&<p role="status" className="message">{notice}</p>}
       {pageTitle&&!title&&!error&&<p role="status">Carregando detalhes da obra…</p>}
-      {!authenticated?<><section className="hero landing">
-        <div className="hero-copy"><h1>Seu diário de <em>filmes, séries e animes.</em></h1><p>Descubra o que assistir, guarde suas próximas escolhas e registre as obras que já viu.</p>
-        <div className="row">{emailAccounts&&<><a className="primary account-link" href="/conta?modo=register">Criar conta</a><a className="account-link" href="/conta">Entrar</a></>}
-        {inviteLogin&&<button className="primary" onClick={()=>signIn("keycloak",{callbackUrl:"/"})}>Entrar com convite</button>}</div></div><div className="reel" aria-hidden="true"><i/><i/><i/></div>
-      </section>
-      <section className="landing-features" aria-labelledby="landing-features">
-        <h2 id="landing-features">O que você pode fazer no Cena Aberta</h2>
-        <div className="feature-grid">
-          <article className="panel"><h3>Descubra o que assistir</h3><p>Busque títulos, veja pôsteres e sinopses e salve suas escolhas em Vou ver.</p></article>
-          <article className="panel"><h3>Monte seu diário</h3><p>Registre quando assistiu ou reassistiu a uma obra. Dê uma nota e escreva sua resenha.</p></article>
-          <article className="panel"><h3>Crie suas listas</h3><p>Reúna favoritos, organize maratonas e compartilhe recomendações com outros membros.</p></article>
-        </div>
-      </section></>:<>
+      {!authenticated?<Landing releases={releases} actions={<>{emailAccounts&&<><a className="primary account-link" href="/conta?modo=register">Criar conta</a><a className="account-link landing-login" href="/conta">Já tenho conta</a></>}{inviteLogin&&<button className="primary" onClick={()=>signIn("keycloak",{callbackUrl:"/"})}>Entrar com convite</button>}</>}/>:<>
+
         {data?.needsProfile&&<section className="panel"><h2>Crie seu perfil</h2><ProfileForm busy={busy} onSave={saveProfile}/></section>}
         {!pageTitle&&(tab==="ranking"?(data?.profile&&<FilmRanking films={(data.library??[]).filter(item=>item.watched&&known[item.title]).map(item=>known[item.title])}/>):tab!=="profile"?<>
           <section className="hero"><div className="hero-copy"><p className="eyebrow">FILMES · SÉRIES · ANIMES</p><h1>Qual é a<br/><em>próxima sessão?</em></h1>
@@ -305,11 +299,12 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
           {loading?<p>Carregando catálogo…</p>:titles.length?<div className="grid">{titles.map(item=><article className="catalog-card" key={item.id}><button className="card" onClick={()=>open(item.id)}><Poster title={item}/><strong>{item.name}</strong><small>{item.year} · {item.anime?"Anime":item.format==="movie"?"Filme":"Série"}</small></button></article>)}</div>:<p>Nenhuma obra nesta página.</p>}
           {(page>1||more)&&<div className="row pagination"><button disabled={page===1} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page}</span><button disabled={!more} onClick={()=>setPage(page+1)}>Próxima</button></div>}</section>
         </>:<section><div className="section-heading profile-heading"><div className="row">{current?.profile&&<ProfileAvatar name={current.profile.name} avatar={current.profile.avatar}/>}<div><h1>{current?.profile?.name??"Meu perfil"}</h1>{current?.profile&&<span className="muted">@{current.profile.username}</span>}</div></div></div>
-          {owned&&current?.profile&&<a className="account-link profile-ranking-link" href="/ranking"><span aria-hidden="true">👑</span><strong>Meu ranking</strong><span aria-hidden="true">→</span></a>}
+          {!owned&&current?.profile&&<ProfileFriend key={current.profile.username} username={current.profile.username}/>}
+          {owned&&current?.profile&&<><nav className="profile-shortcuts" aria-label="Atalhos do perfil"><div><a className="room-nav-button" href="/ranking"><UiIcon name="crown"/>Meu ranking</a>{sectionVisibility("ranking","meu ranking")}</div><a className="room-nav-button" href="/amigos"><UiIcon name="friends"/>Meus amigos</a><a className="room-nav-button" href="/importar"><UiIcon name="import"/>Importar Letterboxd</a></nav><div className="profile-visibility-all">{sectionVisibility("all","todas as seções")}<span>Visibilidade do perfil<small>Controle cada seção pelo ícone de olho ou use este para mostrar/ocultar todas. Avaliações públicas nas obras continuam com controle próprio.</small></span></div></>}
           {owned&&current?.profile&&<details className="panel"><summary>Editar perfil</summary><ProfileForm profile={current.profile} busy={busy} onSave={saveProfile}/></details>}
           {!owned&&current?.profile?.bio&&<p>{current.profile.bio}</p>}
           {current?.profile&&<>
-          {owned&&<section className="panel"><h2>Vou ver</h2><div className="grid">{current.library?.filter(item=>item.interest).map(item=>{
+          {showSection("watchlist")&&<section className="panel"><div className="section-heading"><h2>Vou ver</h2>{sectionVisibility("watchlist","Vou ver")}</div><div className="grid">{current.library?.filter(item=>item.interest).map(item=>{
             const saved=known[item.title];
             return <button key={item.title} className="card" onClick={()=>open(item.title)}>
               {saved?<Poster title={saved}/>:<div className="poster art-0"><span>{label(item.title)}</span></div>}
@@ -317,48 +312,34 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
               {saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
             </button>;
           })}</div>{!current.library?.some(item=>item.interest)&&<p className="muted">Nenhuma obra salva.</p>}</section>}
-          <section className="panel"><h2>Assistidos e avaliações</h2><div className="grid">{current.library?.filter(item=>item.watched||item.rating||item.review).map(item=>{
+          {showSection("watched")&&<section className="panel"><div className="section-heading"><h2>Já vistos e avaliações</h2>{sectionVisibility("watched","já vistos")}</div><div className="grid">{current.library?.filter(item=>item.watched||item.rating||item.review).map(item=>{
             const saved=known[item.title];
             return <article className="catalog-card" key={item.title}><button className="card" onClick={()=>open(item.title)}>
               {saved?<Poster title={saved}/>:<div className="poster art-0"><span>{label(item.title)}</span></div>}
               <strong>{label(item.title)}</strong>{saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
             </button>{item.rewatching&&<small>Vi novamente</small>}{saved?.format==="movie"&&item.rating&&<span>★ {displayRating(item.rating)}</span>}{item.review&&<Spoiler hidden={item.spoiler}>{item.review}</Spoiler>}</article>;
-          })}</div>{!current.library?.some(item=>item.watched||item.rating||item.review)&&<p className="muted">Nenhuma avaliação ou obra assistida.</p>}</section>
-          {owned&&<section className="panel"><h2>Diário</h2><div className="grid">{current.viewings?.map(item=><div className="catalog-card" key={item.id}>{savedCard(item.title)}<span>{item.watched_on?.split("-").reverse().join("/")??"Data não informada"}{item.watched_at&&<> às <time dateTime={item.watched_at}>{sessionTime.format(new Date(item.watched_at))}</time></>}{item.rewatch?" · Revisto":""}</span><button onClick={()=>setViewing(item)}>Editar</button><button disabled={busy} onClick={()=>action(()=>api("me/viewings/"+item.id,"DELETE"),"Registro excluído.")}>Excluir</button></div>)}</div>{!current.viewings?.length&&<p className="muted">Nenhuma sessão registrada.</p>}</section>}
-          <section className="panel"><div className="section-heading"><h2>Listas</h2>{owned&&<button onClick={()=>setEditing({id:"",name:"",description:"",items:[],version:0})}>Nova lista</button>}</div>{current.lists?.map(list=><article className="record" key={list.id}><h3>{list.name}</h3><p>{list.description}</p><div className="grid">{list.items.map(id=><div className="catalog-card" key={id}>{savedCard(id)}</div>)}</div>{owned&&<div className="row"><button onClick={()=>setEditing(list)}>Editar</button><button disabled={busy} onClick={()=>{if(confirm("Excluir esta lista?"))void action(()=>api("me/lists/"+list.id,"DELETE"),"Lista excluída.");}}>Excluir</button></div>}</article>)}{!current.lists?.length&&<p className="muted">Nenhuma lista criada.</p>}</section></>}
+          })}</div>{!current.library?.some(item=>item.watched||item.rating||item.review)&&<p className="muted">Nenhuma avaliação ou obra vista.</p>}</section>}
+          {showSection("diary")&&<section className="panel"><div className="section-heading"><h2>Diário</h2>{sectionVisibility("diary","diário")}</div><div className="grid">{current.viewings?.map(item=><div className="catalog-card" key={item.id}>{savedCard(item.title)}<span>{item.watched_on?.split("-").reverse().join("/")??"Data não informada"}{item.watched_at&&<> às <time dateTime={item.watched_at}>{sessionTime.format(new Date(item.watched_at))}</time></>}{item.rewatch?" · Revisto":""}</span>{owned&&<><button onClick={()=>setViewing(item)}>Editar</button><button disabled={busy} onClick={()=>action(()=>api("me/viewings/"+item.id,"DELETE"),"Registro excluído.")}>Excluir</button></>}</div>)}</div>{!current.viewings?.length&&<p className="muted">Nenhuma sessão registrada.</p>}</section>}
+          {showSection("lists")&&<section className="panel"><div className="section-heading"><h2>Listas</h2>{sectionVisibility("lists","listas")}{owned&&<button onClick={()=>setEditing({id:"",name:"",description:"",items:[],version:0})}>Nova lista</button>}</div>{current.lists?.map(list=><article className="record" key={list.id}><h3>{list.name}</h3><p>{list.description}</p><div className="grid">{list.items.map(id=><div className="catalog-card" key={id}>{savedCard(id)}</div>)}</div>{owned&&<div className="row"><button onClick={()=>setEditing(list)}>Editar</button><button disabled={busy} onClick={()=>{if(confirm("Excluir esta lista?"))void action(()=>api("me/lists/"+list.id,"DELETE"),"Lista excluída.");}}>Excluir</button></div>}</article>)}{!current.lists?.length&&<p className="muted">Nenhuma lista criada.</p>}</section>}
+          {!owned&&showSection("ranking")&&<section className="panel"><h2><UiIcon name="crown"/> Ranking</h2>{["movie","tv","anime"].map(kind=><div key={kind}><h3>{kind==="movie"?"Filmes":kind==="tv"?"Séries":"Animes"}</h3>{rankingCategories.map((category,tier)=><div className={"public-ranking-tier rank-tier-"+tier} key={tier}><h4>{category}</h4><div className="public-ranking-cards">{current.ranking?.filter(item=>item.tier===tier&&(known[item.title]?.anime?"anime":known[item.title]?.format)===kind).map(item=><div className="catalog-card" key={item.title}>{savedCard(item.title)}</div>)}</div></div>)}</div>)}</section>}
+          {!owned&&!Object.values(current.visibility??{}).some(Boolean)&&<p className="muted">As seções deste perfil estão privadas.</p>}</>}
         </section>)}
       </>}
       {title&&<section ref={detail} tabIndex={-1} className="panel detail" aria-label="Detalhes da obra"><div className="section-heading"><h2>Detalhes</h2></div><div className="detail-grid"><Poster title={title} large/><div><p className="eyebrow">{title.anime?"ANIME":title.format==="movie"?"FILME":"SÉRIE"} · {title.year||"ANO INDISPONÍVEL"}</p><h2>{title.name}</h2><p>{title.summary||"Sinopse indisponível."}</p><FilmFacts title={title}/>
       {data?.profile&&<><div className="row">
-        <IconAction kind="watched" active={entry.watched} disabled={busy} label={entry.watched?"Já assisti — desmarcar":"Já assisti — marcar"} onClick={()=>{void update("watched",{value:!entry.watched});}}/>
-        {(!entry.watched||entry.interest)&&<IconAction kind="interest" active={entry.interest} disabled={busy} label={entry.interest?"Vou ver — remover da lista":"Vou ver — adicionar à lista"} onClick={()=>{void update("interest",{value:!entry.interest});}}/>}
-        <IconAction kind="rewatching" active={entry.rewatching} disabled={busy} label={entry.rewatching?"Vi novamente — desmarcar":"Vi novamente — marcar"} onClick={()=>{void update("rewatching",{value:!entry.rewatching});}}/>
+        <IconAction kind="watched" active={entry.watched} disabled={busy||reviewPending} label={entry.watched?"Já vi":"Ainda não vi"} onClick={()=>{void update("watched",{value:!entry.watched});}}/>
+        {(!entry.watched||entry.interest)&&<IconAction kind="interest" active={entry.interest} disabled={busy} label={entry.interest?"No Vou ver":"Fora do Vou ver"} onClick={()=>{void update("interest",{value:!entry.interest});}}/>}
+        {entry.watched&&<><IconAction kind="rewatching" active={entry.rewatching} disabled={busy} label={entry.rewatching?"Vi novamente":"Sem revisualização"} onClick={()=>{void update("rewatching",{value:!entry.rewatching});}}/>
         <button disabled={busy||!entry.rewatching} aria-haspopup="dialog" title={!entry.rewatching?"Marque Vi novamente para registrar outra sessão.":undefined} onClick={()=>{
           setError("");
           setPendingViewing({title:title.id,name:title.name,watchedAt:new Date().toISOString()});
-        }}>Registrar sessão</button></div>
-      <div className="form">
+        }}>Registrar sessão</button></>}</div>
+      {entry.watched&&<div className="form">
       {rankControl(title.id)}
       {title.format==="movie"&&<StarRating key={title.id} showPreference disabled={busy} value={entry.rating} onChange={rating=>{void update("rating",{rating});}}/>}
-      <form key={title.id+"-"+entry.version} className="form" onSubmit={event=>{
-        event.preventDefault();
-        if(busy)return;
-        const form=new FormData(event.currentTarget);
-        void saveReview(title.id,{review:form.get("review"),spoiler:form.has("spoiler"),version:entry.version});
-      }}>
-      <label>Minha resenha<textarea name="review" maxLength={3000} defaultValue={entry.review??""}/></label>
-      <div className="row">
-        <span className="review-controls">
-          <SpoilerControl initial={entry.spoiler} disabled={busy}/>
-          {(title.format==="tv"||entry.rating!==null||entry.review)&&visibilityControl({...entry,title:title.id})}
-        </span>
-        <button disabled={busy} className="primary">Salvar resenha</button>
-        {entry.review&&<button type="button" disabled={busy} onClick={()=>update("review",{review:"",spoiler:false,version:entry.version})}>Excluir resenha</button>}
-      </div>
-      {(title.format==="tv"||entry.rating!==null||entry.review)&&
-        <small className="evaluation-hint">{title.format==="tv"?"Compartilha suas notas por episódio e sua resenha.":"Compartilha sua nota e resenha com a comunidade."}</small>}
-      </form>
-      <label>Adicionar à lista<select value="" disabled={busy} onChange={event=>{const list=data.lists?.find(item=>item.id===event.target.value);if(list&&!list.items.includes(title.id))void action(()=>api("me/lists/"+list.id,"PUT",{...list,items:[...list.items,title.id]}),"Obra adicionada.");}}><option value="">Selecione uma lista</option>{data.lists?.map(list=><option key={list.id} value={list.id} disabled={list.items.includes(title.id)}>{list.name}</option>)}</select></label></div></>}
+      <label>Adicionar à lista<select value="" disabled={busy} onChange={event=>{const list=data.lists?.find(item=>item.id===event.target.value);if(list&&!list.items.includes(title.id))void action(()=>api("me/lists/"+list.id,"PUT",{...list,items:[...list.items,title.id]}),"Obra adicionada.");}}><option value="">Selecione uma lista</option>{data.lists?.map(list=><option key={list.id} value={list.id} disabled={list.items.includes(title.id)}>{list.name}</option>)}</select></label>
+      <ReviewEditor key={title.id} title={title.id} initial={entry} disabled={busy} onPending={setReviewPending} onSaved={async()=>{await refresh();await refreshCommunity(title.id);}} visibility={visibilityControl({...entry,title:title.id})}/>
+      </div>}</>}
       </div></div>
       {community&&<section className="community" aria-labelledby="community-heading">
         <h3 id="community-heading">Comunidade</h3>
@@ -367,7 +348,7 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
         <h4>Comentários</h4>
         {!community.reviews.length&&<p className="muted">Nenhum comentário publicado.</p>}
         {community.reviews.map(review=><article className="record" key={review.username}>
-          <div className="row review-author"><button className="review-author-link" onClick={()=>visit(review.username)}>
+          <div className="row review-author"><button className="review-author-link" disabled={review.username===data?.profile?.username} onClick={()=>visit(review.username)}>
             <ProfileAvatar name={review.name} avatar={review.avatar}/>{review.name}
           </button>
           {title.format==="movie"&&review.rating!==null&&<span className="review-score">★ {displayRating(review.rating)}</span>}</div>
@@ -391,7 +372,7 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
         </section>}
       </section>}
       </section>}
-      {title?.format==="tv"&&data?.profile&&<EpisodeRatings key={title.id} title={title.id} seasons={title.details?.seasons??1} publicSeasons={community?.seasons} onSaved={()=>{void refreshCommunity(title.id);void refresh().catch(fail);}}/>}
+      {title?.format==="tv"&&data?.profile&&entry.watched&&<EpisodeRatings key={title.id} title={title.id} seasons={title.details?.seasons??1} publicSeasons={community?.seasons} onSaved={()=>{void refreshCommunity(title.id);void refresh().catch(fail);}}/>}
       {editing&&<section className="panel editor"><h2>{editing.id?"Editar lista":"Nova lista"}</h2><form className="form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);const payload={...editing,name:form.get("name"),description:form.get("description")};void action(async()=>{if(editing.id)await api("me/lists/"+editing.id,"PUT",payload);else await create("me/lists",payload);setEditing(null);},"Lista salva.");}}><label>Nome<input name="name" maxLength={100} required defaultValue={editing.name}/></label><label>Descrição<textarea name="description" maxLength={500} defaultValue={editing.description}/></label>
       <ol>{editing.items.map((id,index)=><li className="record row" key={id}>{label(id)}<button type="button" disabled={index===0} aria-label={"Subir "+label(id)} onClick={()=>{const items=[...editing.items];[items[index-1],items[index]]=[items[index],items[index-1]];setEditing({...editing,items});}}>↑</button><button type="button" onClick={()=>setEditing({...editing,items:editing.items.filter(item=>item!==id)})}>Remover</button></li>)}</ol><div className="row"><button className="primary" disabled={busy}>Salvar lista</button><button type="button" onClick={()=>setEditing(null)}>Cancelar</button></div></form></section>}
       <dialog className="session-dialog" ref={sessionDialog} aria-labelledby="session-heading" onCancel={event=>{
@@ -400,7 +381,7 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
       }}>
         {pendingViewing&&<>
           <h2 id="session-heading">Registrar sessão?</h2>
-          <p>Adicionar uma revisualização de <strong>{pendingViewing.name}</strong> ao diário, às {sessionTime.format(new Date(pendingViewing.watchedAt))}?</p>
+          <p>Adicionar uma revisualização de <strong>{pendingViewing.name}</strong> ao <strong className="profile-section-name">Diário</strong>, às {sessionTime.format(new Date(pendingViewing.watchedAt))}?</p>
           {error&&<p role="alert" className="message error">{error}</p>}
           <div className="row">
             <button type="button" autoFocus disabled={busy} onClick={()=>{setPendingViewing(null);setError("");}}>Cancelar</button>
@@ -408,8 +389,8 @@ export function App({authenticated,inviteLogin,emailAccounts,pageTitle,initialTa
           </div>
         </>}
       </dialog>
-      {viewing&&<section className="panel editor"><h2>Editar sessão</h2><form className="form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);const body={title:viewing.title,date:form.get("date")||null,rewatch:form.has("rewatch")};void action(async()=>{await api("me/viewings/"+viewing.id,"PUT",body);setViewing(null);},"Sessão salva.");}}><label>Data (opcional)<input name="date" type="date" defaultValue={viewing.watched_on??""}/></label><label className="check"><input name="rewatch" type="checkbox" defaultChecked={viewing.rewatch}/>Já tinha assistido antes</label><div className="row"><button className="primary" disabled={busy}>Salvar sessão</button><button type="button" onClick={()=>setViewing(null)}>Cancelar</button></div></form></section>}
-      {credits&&<section className="panel"><h2>Sobre o alpha</h2><p>Cena Aberta é um diário audiovisual em desenvolvimento. O catálogo de demonstração usa obras fictícias.</p><p><a href="https://www.themoviedb.org/"><img src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" width={88} alt="The Movie Database"/></a></p><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p><p>O diário e a lista “Vou ver” ficam visíveis apenas para você. Notas e resenhas são privadas até você publicar a avaliação. Listas criadas podem ser vistas por participantes do alpha.</p></section>}
+      {viewing&&<section className="panel editor"><h2>Editar sessão</h2><form className="form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);const body={title:viewing.title,date:form.get("date")||null,rewatch:form.has("rewatch")};void action(async()=>{await api("me/viewings/"+viewing.id,"PUT",body);setViewing(null);},"Sessão salva.");}}><label>Data (opcional)<input name="date" type="date" defaultValue={viewing.watched_on??""}/></label><label className="check"><input name="rewatch" type="checkbox" defaultChecked={viewing.rewatch}/>Já tinha visto antes</label><div className="row"><button className="primary" disabled={busy}>Salvar sessão</button><button type="button" onClick={()=>setViewing(null)}>Cancelar</button></div></form></section>}
+      {credits&&<section className="panel"><h2>Sobre o alpha</h2><p>Cena Aberta é um diário audiovisual em desenvolvimento. O catálogo de demonstração usa obras fictícias.</p><p><a href="https://www.themoviedb.org/"><img src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" width={88} alt="The Movie Database"/></a></p><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p><p>A visibilidade das seções é definida por você no perfil. Novas notas e resenhas são públicas por padrão. Você pode tornar cada avaliação privada pelo controle de visibilidade. Somente as seções habilitadas ficam visíveis para quem visita seu perfil.</p></section>}
     </main><footer className="wrap footer"><span>Cena Aberta · Alpha</span><button onClick={()=>setCredits(!credits)}>Sobre, créditos e privacidade</button></footer>
   </>;
 }

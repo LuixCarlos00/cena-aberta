@@ -48,7 +48,7 @@ public class Social {
 
     private static final ZoneId DIARY_ZONE=ZoneId.of("America/Sao_Paulo");
 
-    public record Profile(String username,String name,String bio,String cpf,String avatar) {}
+    public record Profile(String username,String name,String bio,String avatar) {}
 
     public record RankedFilm(String title,Integer tier) {}
 
@@ -279,7 +279,7 @@ public class Social {
         if(input.rating()!=null) {
             db.update("insert into episode_rating values(?,?,?,?,?)",actor,title,season,episode,input.rating());
             if(!exists("select count(*) from library where actor=? and title=?",actor,title))
-                db.update("insert into library(actor,title) values(?,?)",actor,title);
+                db.update("insert into library(actor,title,evaluation_public,spoiler) values(?,?,true,false)",actor,title);
             mark(actor,title);
         }
 
@@ -309,31 +309,30 @@ public class Social {
 
         validateActor(actor);
 
-        String username=required(input.username(),32).toLowerCase(Locale.ROOT);
+        String username=ProfileFields.username(input.username());
 
-        if (!username.matches("[a-z0-9_]{3,32}")) fail(HttpStatus.BAD_REQUEST,"Use de 3 a 32 letras, números ou sublinhados.");
+
 
         String name=required(input.name(),80), bio=optional(input.bio(),300);
 
-        String cpf=input.cpf()==null||input.cpf().isBlank()?null:ProfileFields.cpf(input.cpf());
 
         String avatar=ProfileFields.avatar(input.avatar());
 
         try {
 
-            int count=db.update("update profile set username=?,name=?,bio=?,cpf=coalesce(?,cpf),avatar=coalesce(?,avatar) where actor=? and active=true",username,name,bio,cpf,avatar,actor);
+            int count=db.update("update profile set username=?,name=?,bio=?,avatar=coalesce(?,avatar) where actor=? and active=true",username,name,bio,avatar,actor);
 
             if (count==0) {
 
                 if (exists("select count(*) from profile where actor=?",actor)) fail(HttpStatus.FORBIDDEN,"Acesso suspenso.");
 
-                if (cpf==null) fail(HttpStatus.BAD_REQUEST,"Informe seu CPF.");
 
-                db.update("insert into profile(actor,username,name,bio,cpf,avatar) values(?,?,?,?,?,?)",actor,username,name,bio,cpf,avatar);
+
+                db.update("insert into profile(actor,username,name,bio,avatar) values(?,?,?,?,?)",actor,username,name,bio,avatar);
 
             }
 
-        } catch (DuplicateKeyException duplicate) { fail(HttpStatus.CONFLICT,"Nome de usuário ou CPF já cadastrado."); }
+        } catch (DuplicateKeyException duplicate) { fail(HttpStatus.CONFLICT,"Nome de usuário já cadastrado."); }
 
         return me(actor);
 
@@ -341,13 +340,18 @@ public class Social {
 
 
 
+    @GetMapping("/profiles")
+    Map<String,Object> profileByName(@RequestHeader("X-Actor") String actor,@RequestParam String username) {
+        return publicProfile(actor,username);
+    }
+
     @GetMapping("/profiles/{username}")
 
     Map<String,Object> publicProfile(@RequestHeader("X-Actor") String actor,@PathVariable String username) {
 
         active(actor);
 
-        var target=one("select actor,username,name,bio,avatar from profile where username=? and active=true",username.toLowerCase(Locale.ROOT));
+        var target=one("select actor,username,name,bio,avatar from profile where username=? and active=true",ProfileFields.username(username));
 
         return dashboard(target,(String)target.get("actor"),false);
 
@@ -433,11 +437,17 @@ public class Social {
 
                 if (input.value()==null) fail(HttpStatus.BAD_REQUEST,"Informe o estado.");
 
-                if (input.value()) mark(actor,id);
+                if (input.value()) {
+                    mark(actor,id);
+                    if(!exists("select count(*) from viewing where actor=? and title=?",actor,id)){
+                        OffsetDateTime now=OffsetDateTime.now(DIARY_ZONE);
+                        insertViewing(actor,id,now.toLocalDate(),false,now);
+                    }
+                }
 
                 else if (!input.value()) {
 
-                    db.update("update library set watched=false where actor=? and title=?",actor,id);
+                    db.update("update library set watched=false,rewatching=false where actor=? and title=?",actor,id);
 
                     if(db.update("delete from film_ranking where actor=? and title=?",actor,id)>0)
 
@@ -692,31 +702,44 @@ public class Social {
 
 
 
-    private Map<String,Object> dashboard(Map<String,Object> profile,String actor,boolean own) {
-
-        var lists=db.queryForList("select id,name,description,version from collection where actor=? order by created desc limit 30",actor);
-
-        var items=db.queryForList("select i.collection_id,i.title from collection_item i join collection c on c.id=i.collection_id where c.actor=? order by i.position",actor);
-
-        for (var list:lists) list.put("items",items.stream().filter(item->item.get("collection_id").equals(list.get("id"))).map(item->item.get("title")).toList());
-
-        var viewings=own?db.queryForList("select id,title,watched_on,rewatch,watched_at from viewing where actor=? order by watched_on desc nulls last,coalesce(watched_at,created) desc limit 100",actor):List.of();
-
-        String library=own?
-
-            "select title,watched,interest,rewatching,rating,review,spoiler,hidden,version,evaluation_public from library where actor=? order by title limit 1000":
-
-            "select title,watched,rewatching,case when evaluation_public and not hidden then rating end as rating,case when evaluation_public and not hidden then review end as review,case when evaluation_public and not hidden then spoiler else false end as spoiler from library where actor=? and (watched=true or (evaluation_public and not hidden and (rating is not null or review is not null))) order by title limit 1000";
-
-        return Map.of("profile",Map.of("username",profile.get("username"),"name",profile.get("name"),"bio",profile.get("bio"),
-
-            "avatar",Objects.toString(profile.get("avatar"),"")),
-
-            "library",db.queryForList(library,actor),"viewings",viewings,"lists",lists);
-
+    record ProfileVisibility(String section,Boolean visible) {}
+    @PutMapping("/me/visibility") @Transactional
+    Map<String,Object> visibility(@RequestHeader("X-Actor") String actor,@RequestBody ProfileVisibility input){
+        lockActive(actor);
+        if(input.visible()==null||input.section()==null||!Set.of("all","watchlist","ranking","watched","diary","lists").contains(input.section()))fail(HttpStatus.BAD_REQUEST,"Seção inválida.");
+        if(input.section().equals("all"))db.update("update profile set show_watchlist=?,show_ranking=?,show_watched=?,show_diary=?,show_lists=? where actor=?",input.visible(),input.visible(),input.visible(),input.visible(),input.visible(),actor);
+        else db.update("update profile set show_"+input.section()+"=? where actor=?",input.visible(),actor);
+        return profileVisibility(actor);
     }
-
-
+    private Map<String,Object> profileVisibility(String actor){
+        var row=one("select show_watchlist,show_ranking,show_watched,show_diary,show_lists from profile where actor=?",actor);
+        var result=new LinkedHashMap<String,Object>();
+        for(String section:List.of("watchlist","ranking","watched","diary","lists"))result.put(section,row.get("show_"+section));
+        return result;
+    }
+    private Map<String,Object> dashboard(Map<String,Object> profile,String actor,boolean own) {
+        var visibility=profileVisibility(actor);
+        var lists=own||Boolean.TRUE.equals(visibility.get("lists"))?db.queryForList("select id,name,description,version from collection where actor=? order by created desc limit 30",actor):List.<Map<String,Object>>of();
+        if(!lists.isEmpty()){
+            var items=db.queryForList("select i.collection_id,i.title from collection_item i join collection c on c.id=i.collection_id where c.actor=? order by i.position",actor);
+            for(var list:lists)list.put("items",items.stream().filter(item->item.get("collection_id").equals(list.get("id"))).map(item->item.get("title")).toList());
+        }
+        var viewings=own||Boolean.TRUE.equals(visibility.get("diary"))?db.queryForList("select id,title,watched_on,rewatch,watched_at from viewing where actor=? order by watched_on desc nulls last,coalesce(watched_at,created) desc limit 100",actor):List.of();
+        List<Map<String,Object>> library;
+        if(own)library=db.queryForList("select title,watched,interest,rewatching,rating,review,spoiler,hidden,version,evaluation_public from library where actor=? order by title limit 1000",actor);
+        else {
+            boolean watched=Boolean.TRUE.equals(visibility.get("watched")),watchlist=Boolean.TRUE.equals(visibility.get("watchlist"));
+            library=db.queryForList("select title,watched,interest,rewatching,rating,review,spoiler,hidden,evaluation_public from library where actor=? and ((? and watched=true) or (? and interest=true) or (? and evaluation_public=true and hidden=false and (rating is not null or review is not null))) order by title limit 1000",actor,watched,watchlist,watched);
+            for(var item:library){
+                if(!watched){item.put("watched",false);item.put("rewatching",false);}
+                if(!watchlist)item.put("interest",false);
+                if(!watched||!Boolean.TRUE.equals(item.get("evaluation_public"))||Boolean.TRUE.equals(item.get("hidden"))){item.put("rating",null);item.put("review",null);item.put("spoiler",false);}
+                item.remove("hidden");item.remove("evaluation_public");
+            }
+        }
+        var ranking=own||Boolean.TRUE.equals(visibility.get("ranking"))?db.queryForList("select title,tier from film_ranking where actor=? order by tier,position",actor):List.of();
+        return Map.of("profile",Map.of("username",profile.get("username"),"name",profile.get("name"),"bio",profile.get("bio"),"avatar",Objects.toString(profile.get("avatar"),"")),"library",library,"viewings",viewings,"lists",lists,"ranking",ranking,"visibility",visibility);
+    }
 
     private void ensureLibrary(String actor,String id) {
 
@@ -726,7 +749,7 @@ public class Social {
 
             verifyTitle(id);
 
-            db.update("insert into library(actor,title) values(?,?)",actor,id);
+            db.update("insert into library(actor,title,evaluation_public,spoiler) values(?,?,true,false)",actor,id);
 
         }
 

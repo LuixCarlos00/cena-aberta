@@ -79,24 +79,38 @@ class EmailAccounts {
         limit();
         String email=email(input.email());
         if(purpose.equals("register") && !canRegister(email)) return;
-        if (account(email).isEmpty() != purpose.equals("register")) return;
+        boolean exists=account(email).isPresent();
+        if(purpose.equals("reset")&&!exists)throw error(HttpStatus.NOT_FOUND,"Não há conta criada com este e-mail.");
+        if(purpose.equals("register")&&exists)return;
         var now=OffsetDateTime.now(ZoneOffset.UTC);
         byte[] bytes=new byte[32]; random.nextBytes(bytes);
         String token=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         String hash=hash(token);
         int changed=db.update("update email_link set token_hash=?,sent_at=?,expires_at=? where email=? and purpose=? and sent_at<=?",
-            hash,now,now.plusMinutes(60),email,purpose,now.minusMinutes(1));
+            hash,now,now.plusMinutes(60),email,purpose,now.minusMinutes(purpose.equals("reset")?2:1));
         if(changed==0) {
             try {
                 db.update("insert into email_link(email,purpose,token_hash,sent_at,expires_at) values(?,?,?,?,?)",
                     email,purpose,hash,now,now.plusMinutes(60));
-            } catch(DuplicateKeyException cooldown) { return; }
+            } catch(DuplicateKeyException cooldown) {
+                if(purpose.equals("reset")) {
+                    var sent=db.queryForObject("select sent_at from email_link where email=? and purpose=?",(row,index)->row.getTimestamp(1).toInstant(),email,purpose);
+                    long seconds=sent==null?120:Math.max(1,Math.min(120,(java.time.Duration.between(java.time.Instant.now(),sent.plusSeconds(120)).toMillis()+999)/1000));
+                    throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,"Aguarde antes de reenviar o link.") {
+                        @Override public org.springframework.http.HttpHeaders getHeaders() {
+                            var headers=new org.springframework.http.HttpHeaders();headers.set("Retry-After",Long.toString(seconds));return headers;
+                        }
+                    };
+                }
+                return;
+            }
         }
         try {
             send(email,purpose,front+"/conta#"+purpose+"="+token);
         } catch(MailException failure) {
             db.update("delete from email_link where token_hash=?",hash);
             LoggerFactory.getLogger(getClass()).warn("Falha no envio SMTP: {}",failure.getClass().getSimpleName());
+            throw error(HttpStatus.SERVICE_UNAVAILABLE,"Não foi possível enviar o e-mail. Tente novamente em instantes.");
         }
     }
 
@@ -110,8 +124,8 @@ class EmailAccounts {
         var candidate=db.queryForList("select email from email_link where token_hash=? and purpose=? and expires_at>CURRENT_TIMESTAMP",tokenHash,purpose);
         if(candidate.isEmpty()) throw invalid();
         String password=input.password();
-        if(password==null || password.codePointCount(0,password.length())<12 || password.getBytes(StandardCharsets.UTF_8).length>72 || password.isBlank())
-            throw error(HttpStatus.BAD_REQUEST,"Use pelo menos 12 caracteres e no máximo 72 bytes.");
+        if(password==null || password.codePointCount(0,password.length())<12 || password.getBytes(StandardCharsets.UTF_8).length>72 || !password.codePoints().anyMatch(Character::isUpperCase) || !password.codePoints().anyMatch(Character::isLowerCase) || !password.codePoints().anyMatch(Character::isDigit) || !password.codePoints().anyMatch(c -> !Character.isLetterOrDigit(c) && !Character.isWhitespace(c)))
+            throw error(HttpStatus.BAD_REQUEST,"Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo (máximo de 72 bytes).");
         String encoded=encoder.encode(password);
         var rows=db.queryForList("select email from email_link where token_hash=? and purpose=? and expires_at>CURRENT_TIMESTAMP for update",tokenHash,purpose);
         if(rows.isEmpty()) throw invalid();

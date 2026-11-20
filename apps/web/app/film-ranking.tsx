@@ -104,7 +104,7 @@ export function FilmRanking({films}:{films:(Film&{format:string;anime:boolean})[
     </div>)}
     <div className="rank-bank" onDragOver={event=>{if(dragging)event.preventDefault();}} onDrop={event=>drop(event,-1)}>
       <h3>Sem categoria</h3><div className="rank-cards">{groupFilms.filter(film=>!visible.some(item=>item.title===film.id)).map(film=>mini(film,-1))}</div>
-      {!groupFilms.length&&<p className="muted">Marque obras como assistidas para organizar seu ranking.</p>}
+      {!groupFilms.length&&<p className="muted">Marque obras como assistidas para organizar <strong className="profile-section-name">Meu ranking</strong>.</p>}
     </div>
   </section>;
 }
