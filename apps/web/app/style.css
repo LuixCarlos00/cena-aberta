@@ -280,3 +280,7 @@ button{cursor:pointer;color:inherit;background:var(--surface);border:1px solid v
 .card-title{display:block;width:100%;min-width:0;overflow:hidden;white-space:nowrap;text-align:left}.card-title>span{display:block;width:max-content;max-width:none}.card-title[data-overflow=true]>span{animation:card-title-marquee var(--title-duration) ease-in-out infinite alternate}.card:hover .card-title>span,.card:focus-visible .card-title>span{animation-play-state:paused}
 @keyframes card-title-marquee{0%,15%{transform:translateX(0)}85%,100%{transform:translateX(var(--title-distance))}}
 @media(prefers-reduced-motion:reduce){.card-title{white-space:normal;overflow-wrap:anywhere}.card-title>span{width:auto}.card-title[data-overflow=true]>span{animation:none;transform:none}}
+
+:root[data-theme=light] .avatar-option{background:var(--surface);color:var(--text);border-color:var(--line)}
+:root[data-theme=light] .avatar-option:hover{background:#e0e5ec;border-color:#8994a5}
+:root[data-theme=light] .avatar-option[aria-pressed=true]{background:#f6e8d0;color:#684509;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
