@@ -3,6 +3,7 @@ import {useCallback,useEffect,useRef,useState,type ReactNode} from "react";
 import {signIn,signOut} from "next-auth/react";
 import {useRouter} from "next/navigation";
 import {EpisodeRatings} from "./episode-ratings";
+import {ThemePicker} from "./theme-picker";
 import {CatalogDrawer} from "./catalog-drawer";
 import {FilmRanking,rankingCategories} from "./film-ranking";
 import type {Release} from "../lib/releases";
@@ -303,7 +304,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
         </>:<section><div className="section-heading profile-heading"><div className="row">{current?.profile&&<ProfileAvatar name={current.profile.name} avatar={current.profile.avatar}/>}<div><h1>{current?.profile?.name??"Meu perfil"}</h1>{current?.profile&&<span className="muted">@{current.profile.username}</span>}</div></div></div>
           {!owned&&current?.profile&&<ProfileFriend key={current.profile.username} username={current.profile.username}/>}
           {owned&&current?.profile&&<><nav className="profile-shortcuts" aria-label="Atalhos do perfil"><a className="room-nav-button" href="/conta/configuracoes">Minha conta</a><a className="room-nav-button" href="/ranking"><UiIcon name="crown"/>Meu ranking</a><a className="room-nav-button" href="/amigos"><UiIcon name="friends"/>Meus amigos</a><a className="room-nav-button" href="/importar"><UiIcon name="import"/>Importar Letterboxd</a></nav><div className="profile-visibility-all">{sectionVisibility("all","todas as seções")}<span>Visibilidade do perfil<small>Controle cada seção pelo ícone de olho ou use este para mostrar/ocultar todas. Avaliações públicas nas obras continuam com controle próprio.</small></span></div></>}
-          {owned&&current?.profile&&<details className="panel"><summary>Editar perfil</summary><ProfileForm profile={current.profile} busy={busy} onSave={saveProfile}/></details>}
+          {owned&&current?.profile&&<details className="panel"><summary>Editar perfil</summary><ThemePicker/><ProfileForm profile={current.profile} busy={busy} onSave={saveProfile}/></details>}
           {!owned&&current?.profile?.bio&&<p>{current.profile.bio}</p>}
           {current?.profile&&<>
           {!owned&&<ProfileFriends key={current.profile.username} username={current.profile.username}/>}

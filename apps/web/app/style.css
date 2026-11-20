@@ -249,7 +249,7 @@ button{cursor:pointer;color:inherit;background:var(--surface);border:1px solid v
 :root{--surface:#252d3d;--header:#151923;--input:#131822;--accent-fill:#ffd080}
 :root[data-theme=light]{color-scheme:light;--bg:#f4f2ed;--panel:#ffffff;--line:#c8cdd5;--text:#202736;--muted:#526071;--accent:#79500a;--accent-fill:#f2c36c;--surface:#e9edf2;--header:#ffffff;--input:#f4f6f8}
 .primary{background:var(--accent-fill);border-color:var(--accent-fill);color:#221b13}
-.theme-picker{display:flex;align-items:center;justify-content:center;gap:12px;padding:20px 0 90px;font-size:.9rem}.theme-picker select{min-height:44px}
+.theme-picker{display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:12px;padding:20px 0;border-bottom:1px solid var(--line);font-size:.9rem}.theme-picker select{min-height:44px}
 .account-settings{max-width:760px;padding-top:28px}.account-settings h1{font-size:2.3rem}.account-settings h2{font-size:1.4rem}.account-danger{margin:28px 0;padding-top:24px;border-top:1px solid var(--line)}.account-danger>button{color:#c14c4c}.account-confirm{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--input);margin-bottom:24px}
 :root[data-theme=light] .hero,:root[data-theme=light] .landing{background:linear-gradient(125deg,#f6e8d0,#e6edf8)}
 :root[data-theme=light] .community-score{background:linear-gradient(120deg,#f6e4c7,#edf1f7);border-color:#c4a576}
@@ -271,3 +271,8 @@ button{cursor:pointer;color:inherit;background:var(--surface);border:1px solid v
 }
 
 @media(max-width:650px){.nav nav>button,.nav nav>.room-nav-link{font-size:.85rem;padding:10px 8px}.nav nav{gap:6px}}
+
+:root[data-theme=light] .nav .nav-profile{background:var(--surface);border-color:var(--line);color:var(--text)}
+:root[data-theme=light] .nav .nav-profile .profile-initial{background:#e6d9c3;color:#553b16}
+:root[data-theme=light] .nav .nav-profile .profile-avatar{border-color:#b1a38d}
+:root[data-theme=light] .nav .nav-profile:hover,:root[data-theme=light] .nav .nav-profile[aria-current=page]{background:#f6e8d0;border-color:#b38a48;color:#684509}
