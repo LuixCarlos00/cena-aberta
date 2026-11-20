@@ -114,3 +114,8 @@ Os testes do serviço social usam banco em memória e remetente simulado para ve
 ## Implantação do alpha
 
 Consulte [Implantação, Funnel e recuperação](deploy/README.md) para configurar o Compose restrito, publicar HTTPS e executar backup e restauração isolada. Use `deploy/.env` privado no servidor; o GitHub recebe somente o modelo sem credenciais.
+
+## Parceiros do projeto
+
+- Vinícius
+- Luiz
