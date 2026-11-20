@@ -6,7 +6,7 @@ const routes = [
   ["PUT", /^rooms\/[a-f0-9-]{36}\/reconsider\/[a-z0-9-]+$/,"social"],
   ["PUT", /^me\/visibility$/,"social"],
   ["DELETE", /^rooms\/[a-f0-9-]{36}$/,"social"],
-  ["GET", /^friends(?:\/(?:search|status))?$/,"social"],
+  ["GET", /^friends(?:\/(?:search|status|profile))?$/,"social"],
   ["POST", /^friends$/,"social"],
   ["PUT", /^friends\/[a-f0-9-]{36}$/,"social"],
   ["PUT", /^rooms\/[a-f0-9-]{36}\/settings$/,"social"],

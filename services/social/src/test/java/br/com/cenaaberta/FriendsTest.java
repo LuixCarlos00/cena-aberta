@@ -33,6 +33,23 @@ class FriendsTest {
  assertEquals("none",service.status("ana","bia").get("relationship"));
  assertEquals("none",service.search("bia","ana").getFirst().get("relationship"));
  }
+ @Test void profileShowsOnlyAcceptedActiveFriendsWithoutPrivateFields(){
+ String id=service.invite("ana",new Friends.Invitation("bia")).get("id");
+ assertTrue(((List<?>)service.profile("ana",0).get("items")).isEmpty());
+ service.decide("bia",id,new Friends.Decision("accept"));
+ service.invite("ana",new Friends.Invitation("caio"));
+ var items=(List<Map<String,Object>>)service.profile("ana",0).get("items");
+ assertEquals(1,items.size());assertEquals("bia",items.getFirst().get("username"));
+ assertEquals(Set.of("username","name","avatar"),items.getFirst().keySet());
+ assertEquals("ana",((List<Map<String,Object>>)service.profile("bia",0).get("items")).getFirst().get("username"));
+ assertTrue(((List<?>)service.profile("ana",1).get("items")).isEmpty());
+ assertEquals(false,service.profile("ana",0).get("hasMore"));
+ assertThrows(ResponseStatusException.class,()->service.profile("ana",-1));
+ assertThrows(ResponseStatusException.class,()->service.profile("missing",0));
+ db.update("update profile set active=false where actor='bia'");
+ assertTrue(((List<?>)service.profile("ana",0).get("items")).isEmpty());
+ assertThrows(ResponseStatusException.class,()->service.profile("bia",0));
+ }
  @Test void declineCancelPrivacyAndInactivePeople(){
  assertThrows(ResponseStatusException.class,()->service.invite("ana",new Friends.Invitation("ana")));
  String id=service.invite("ana",new Friends.Invitation("bia")).get("id");

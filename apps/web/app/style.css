@@ -225,3 +225,5 @@ button{cursor:pointer;color:inherit;background:#252d3d;border:1px solid var(--li
 .profile-friend{margin:16px 0 24px}.profile-friend button{display:inline-flex;align-items:center;gap:8px;min-height:44px}.room-member-link:not([href]){cursor:default}.room-member-link:not([href]):hover{background:transparent;border-color:transparent}
 
 .room-friends{padding:18px;border:1px solid var(--line);border-radius:14px;background:#ffffff03}.room-friends>p{color:var(--muted);font-size:.85rem}.room-friend-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line)}.room-friend-row .room-member-link{min-width:0}.room-friend-row .profile-avatar{width:40px;height:40px}.room-friend-row small{display:block;color:var(--muted)}.room-friend-row>button{min-height:44px;flex:none;font-size:.85rem}
+
+.profile-friends .friend-person{justify-content:flex-start;flex-direction:row;align-items:center;padding:14px 8px;border-radius:10px}.profile-friends .friend-person:hover{background:var(--surface)}.profile-friends .friend-person:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

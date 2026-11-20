@@ -32,6 +32,14 @@ public class Friends {
   var rows=db.queryForList("select f.id,f.status,f.requester,p.username,p.name,p.avatar from friendship f join profile p on p.actor=case when f.requester=? then f.recipient else f.requester end where (f.requester=? or f.recipient=?) and p.active=true order by f.created desc,f.id limit 51 offset ?",actor,actor,actor,offset);
   return Map.of("items",rows.stream().limit(50).map(r->person(r,actor)).toList(),"hasMore",rows.size()>50);
  }
+ @GetMapping("/profile") Map<String,Object> profile(@RequestParam String username,@RequestParam(defaultValue="0") int offset){
+  if(offset<0||offset>100000)fail(HttpStatus.BAD_REQUEST);
+  var owners=db.queryForList("select actor from profile where username=? and active=true",String.class,username);
+  if(owners.isEmpty())fail(HttpStatus.NOT_FOUND);
+  String owner=owners.getFirst();
+  var rows=db.queryForList("select p.username,p.name,p.avatar from friendship f join profile p on p.actor=case when f.requester=? then f.recipient else f.requester end where (f.requester=? or f.recipient=?) and f.status='accepted' and p.active=true order by p.username,f.id limit 51 offset ?",owner,owner,owner,offset);
+  return Map.of("items",rows.stream().limit(50).toList(),"hasMore",rows.size()>50);
+ }
  @GetMapping("/search") List<Map<String,Object>> search(@RequestHeader("X-Actor") String actor,@RequestParam String q){
   if(q==null||q.strip().length()<2||q.length()>80)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Digite pelo menos 2 caracteres.");
   String term="%"+q.strip().toLowerCase(Locale.ROOT).replace("!","!!").replace("%","!%").replace("_","!_")+"%";

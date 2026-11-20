@@ -69,7 +69,7 @@ O mesmo teste passou com PostgreSQL 16 em bancos descartáveis. Para repetir, fo
 
 ## Comunidade e escolha em grupo
 
-- **Amigos:** busca, pedido, aceite, recusa e cancelamento. O perfil visitado mostra o estado da amizade; a relação exige consentimento.
+- **Amigos:** busca, pedido, aceite, recusa e cancelamento. O perfil visitado mostra o estado da amizade e uma lista paginada de amigos, com foto, nome e acesso aos respectivos perfis. Apenas amizades aceitas e perfis ativos aparecem; pedidos pendentes permanecem privados.
 - **Privacidade do perfil:** visibilidade independente de **Vou ver**, **Meu ranking**, **Já vistos e avaliações**, **Diário** e **Listas**, filtrada também na API. As avaliações das obras têm controle separado.
 - **Salas:** de 2 a 8 participantes, filmes do Vou ver e sugestões do catálogo, seleção de vários gêneros, votos persistidos e escolha por unanimidade. A maioria pode abrir uma reconsideração para quem passou. Convites internos ficam em Minhas salas e exigem confirmação de entrada. [Regras das salas](deploy/MOVIE_ROOMS.md).
 - **Importação:** ZIP do Letterboxd com revisão de correspondências antes de importar. Repetições não duplicam registros nem sobrescrevem avaliações existentes. [Limites e funcionamento](deploy/LETTERBOXD_IMPORT.md).

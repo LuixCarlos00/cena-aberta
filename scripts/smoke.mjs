@@ -463,6 +463,12 @@ try {
   await request(social,"/rooms/"+invitedRoom.id,{expected:403});
   await request(social,"/rooms/"+invitedRoom.id+"/join",{method:"POST"});
   assert((await request(social,"/rooms")).some(r=>r.id===invitedRoom.id&&!r.invited));
+  const publicFriends=await fetch(web+"/api/v1/friends/profile?username=testador",{headers:finalHeaders});
+  assert.equal(publicFriends.status,200);
+  const publicFriendsData=await publicFriends.json();
+  assert(publicFriendsData.items.some(p=>p.username==="conta_teste"));
+  assert(publicFriendsData.items.every(p=>Object.keys(p).sort().join(",")==="avatar,name,username"));
+  assert.equal((await fetch(web+"/api/v1/friends/profile?username=testador")).status,401);
   const friendList=await fetch(web+"/api/v1/friends",{headers:finalHeaders});
   assert((await friendList.json()).items.some(p=>p.username==="testador"&&p.relationship==="friends"));
   assert.equal((await fetch(web+"/api/v1/friends",{method:"POST",headers:{...finalHeaders,Origin:"https://example.com"},body:JSON.stringify({username:"segundo"})})).status,403);

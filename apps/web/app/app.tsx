@@ -8,6 +8,7 @@ import type {Release} from "../lib/releases";
 import {Landing} from "./landing";
 import {UiIcon} from "./ui-icons";
 import {StarRating} from "./star-rating";
+import {ProfileFriends} from "./profile-friends";
 import {ProfileFriend} from "./profile-friend";
 import {ReviewEditor} from "./review-editor";
 import {IconAction} from "./action-icons";
@@ -304,6 +305,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
           {owned&&current?.profile&&<details className="panel"><summary>Editar perfil</summary><ProfileForm profile={current.profile} busy={busy} onSave={saveProfile}/></details>}
           {!owned&&current?.profile?.bio&&<p>{current.profile.bio}</p>}
           {current?.profile&&<>
+          {!owned&&<ProfileFriends key={current.profile.username} username={current.profile.username}/>}
           {showSection("watchlist")&&<section className="panel"><div className="section-heading"><h2>Vou ver</h2>{sectionVisibility("watchlist","Vou ver")}</div><div className="grid">{current.library?.filter(item=>item.interest).map(item=>{
             const saved=known[item.title];
             return <button key={item.title} className="card" onClick={()=>open(item.title)}>
