@@ -30,7 +30,7 @@ function Icon({kind,active}:{kind:Kind;active:boolean}) {
 
 export function IconAction({kind,active,label,disabled,onClick}:{kind:Exclude<Kind,"spoiler">;active:boolean;label:string;disabled:boolean;onClick:()=>void}) {
   const id=useId();
-  const caption={watched:"Já vi",interest:"Vou ver",rewatching:"Vi novamente",visibility:null}[kind];
+  const caption=kind==="visibility"?null:label;
   return <span className="icon-control" data-kind={kind}>
     <button type="button" className="icon-action" aria-label={label} aria-describedby={id} aria-pressed={active} disabled={disabled} onClick={onClick}><Icon kind={kind} active={active}/></button>
     {caption&&<span className="touch-icon-caption" aria-hidden="true">{caption}</span>}

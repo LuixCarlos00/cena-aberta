@@ -241,8 +241,9 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   function sectionVisibility(section:Section|"all",label:string){
     if(!owned)return null;
     const visible=section==="all"?Object.values(current?.visibility??{}).length===5&&Object.values(current?.visibility??{}).every(Boolean):!!current?.visibility?.[section];
-    const hint=(visible?"Ocultar ":"Mostrar ")+label+" para visitantes";
-    return <button type="button" className="visibility-toggle" disabled={busy} aria-label={hint} title={hint} aria-pressed={visible} onClick={()=>void action(()=>api("me/visibility","PUT",{section,visible:!visible}),visible?"Seção oculta para visitantes.":"Seção visível para visitantes.")}><UiIcon name={visible?"eye":"hidden"}/></button>;
+    const mixed=section==="all"&&!visible&&Object.values(current?.visibility??{}).some(Boolean);
+    const hint=section==="all"?(mixed?"Algumas seções visíveis para visitantes":visible?"Todas as seções visíveis para visitantes":"Todas as seções ocultas para visitantes"):label.charAt(0).toUpperCase()+label.slice(1)+": "+(section==="lists"||section==="watched"?(visible?"visíveis para visitantes":section==="lists"?"ocultas para visitantes":"ocultos para visitantes"):(visible?"visível para visitantes":"oculto para visitantes"));
+    return <button type="button" className="visibility-toggle" disabled={busy} aria-label={hint} title={hint} aria-pressed={mixed?"mixed":visible} onClick={()=>void action(()=>api("me/visibility","PUT",{section,visible:!visible}),visible?"Seção oculta para visitantes.":"Seção visível para visitantes.")}><UiIcon name={visible?"eye":"hidden"}/></button>;
   }
   function showSection(section:Section){return owned||!!current?.visibility?.[section];}
   function saveProfile(input:ProfileInput) {

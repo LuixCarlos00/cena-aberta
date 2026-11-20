@@ -29,8 +29,8 @@ export function StarRating({value,disabled,onChange,showPreference=false}:{value
   return <fieldset className="star-rating" disabled={disabled}>
     <legend>Minha nota</legend>
     <div className="rating-row">
-      {showPreference&&<button type="button" className="rating-mode rating-icon" title={mode==="stars"?"Usar lista de notas":"Usar estrelas"} aria-label={mode==="stars"?"Usar lista de notas":"Usar estrelas"} onClick={()=>{setPreview(null);changeMode(mode==="stars"?"list":"stars");}}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">{mode==="stars"?<path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/>:<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4L12 17.6l-5.7 3 1.1-6.4-4.6-4.5 6.4-.9Z"/>}</svg>
+      {showPreference&&<button type="button" className="rating-mode rating-icon" title={mode==="stars"?"Nota em estrelas":"Nota em lista"} aria-label={mode==="stars"?"Nota em estrelas":"Nota em lista"} onClick={()=>{setPreview(null);changeMode(mode==="stars"?"list":"stars");}}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">{mode==="list"?<path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/>:<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4L12 17.6l-5.7 3 1.1-6.4-4.6-4.5 6.4-.9Z"/>}</svg>
       </button>}
       <button type="button" className="rating-clear rating-icon" title="Limpar nota" aria-label="Limpar nota" disabled={disabled||value===null} onClick={()=>{setPreview(null);onChange(null);}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m14 3 7 7-11 11H6l-4-4L14 3Zm-7 9 7 7m-4 2h12"/></svg></button>
 
