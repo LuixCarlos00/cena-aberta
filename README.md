@@ -117,5 +117,5 @@ Consulte [Implantação, Funnel e recuperação](deploy/README.md) para configur
 
 ## Parceiros do projeto
 
-- Vinícius
+- [Vinícius Araújo (@viiveki)](https://github.com/viiveki)
 - Luiz
