@@ -79,7 +79,7 @@ export default function Conta() {
     history.replaceState(null,"","/conta?"+new URLSearchParams({...(next==="register"?{modo:"register"}:{}),...(destination!=="/"?{next:destination}:{})}));
   }
   const title=token?"Defina sua senha":mode==="register"?"Criar conta":mode==="reset"?"Recuperar senha":"Entrar";
-  const description=token?"Escolha a senha que você vai usar para entrar.":mode==="register"?"Confirme seu e-mail para criar sua conta.":mode==="reset"?"Vamos enviar um link para você definir uma nova senha.":<>Acesse seu <strong className="profile-section-name">Diário</strong>, suas <strong className="profile-section-name">Listas</strong> e suas avaliações.</>;
+  const description=token?"Escolha a senha que você vai usar para entrar.":mode==="register"?"Confirme seu e-mail para criar sua conta.":mode==="reset"?"Vamos enviar um link para você definir uma nova senha.":<>Acesse seu <strong className="profile-section-name">Diário</strong> e suas avaliações.</>;
   return <main className="wrap account-page"><section className="panel account-panel" aria-labelledby="account-title">
     <a className="account-brand" href="/"><span aria-hidden="true">◈</span> Cena Aberta</a>
     <h1 id="account-title">{title}</h1>
