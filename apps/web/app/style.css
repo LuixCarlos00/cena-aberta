@@ -314,3 +314,5 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 :root[data-theme=light] .preview-voters>span.voted{background:#dcefe2;color:#245b39;border-color:#77a486}
 :root[data-theme=light] .preview-voters>span.passed{background:#f5dfdf;color:#7f3434;border-color:#c88c8c}
 .preview-film-caption small{color:#d5dbe5}
+
+.landing-match-icon{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border:1px solid currentColor;border-radius:10px}.landing-match-icon svg{display:block}

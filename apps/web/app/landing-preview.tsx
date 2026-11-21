@@ -16,7 +16,7 @@ export function LandingPreview({releases}:{releases:Release[]}){
  {film?.poster&&!failed.includes(film.id)?<img src={film.poster} alt={"Pôster de "+film.name} onError={()=>setFailed(old=>[...old,film.id])}/>:<div className="preview-art"><span>HOJE TEM</span><strong>{film?.name??"uma boa história."}</strong></div>}
  {film&&<div className="preview-film-caption"><small>{film.year}</small><strong>{film.name}</strong></div>}{votes>0&&<span className={"preview-stamp "+(lastVote===false?"pass":"")}>{lastVote?"QUERO VER":"PASSO"}</span>}</div></div>
  <div className="preview-voters" aria-hidden="true">{["A","B","C"].map((person,i)=><span key={person} className={votes>=i+1?(choices[i]?"voted":"passed"):""} title={person+": "+(votes>=i+1?(choices[i]?"Quero ver":"Passo"):"Aguardando")}>{votes>=i+1?(choices[i]?"✓":"×"):person}</span>)}<small>{votes?likes+" de 3 querem ver":"Cada pessoa dá seu voto"}</small></div>
- <div className={"landing-match "+(match?"preview-match-active":complete?"preview-no-match":"")}><span aria-hidden="true">{match?"♥":complete?"→":"↔"}</span><div><strong>{complete?outcome:"Quero ver ou passo?"}</strong><small>{complete?caption:"Deslize. Encontrem uma escolha em comum."}</small></div></div>
+ <div className={"landing-match "+(match?"preview-match-active":complete?"preview-no-match":"")}><span className="landing-match-icon" aria-hidden="true"><UiIcon name={match?"heart":complete?"next":"swipe"}/></span><div><strong>{complete?outcome:"Quero ver ou passo?"}</strong><small>{complete?caption:"Deslize. Encontrem uma escolha em comum."}</small></div></div>
  {film&&<a className="preview-credit" href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">Dados e imagens: TMDB</a>}
  </div>;
 }
