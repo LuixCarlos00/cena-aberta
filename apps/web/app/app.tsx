@@ -329,6 +329,16 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
             </button>{item.rewatching&&<small>Vi novamente</small>}{saved?.format==="movie"&&item.rating&&<span>★ {displayRating(item.rating)}</span>}{item.review&&<Spoiler hidden={item.spoiler}>{item.review}</Spoiler>}</article>;
           })}</div>{!current.library?.some(item=>item.watched||item.rating||item.review)&&<p className="muted">Nenhuma avaliação ou obra vista.</p>}</section>}
           {showSection("diary")&&<section className="panel"><div className="section-heading"><h2>Diário</h2>{sectionVisibility("diary","diário")}</div><div className="grid profile-card-strip diary-cards">{current.viewings?.map(item=><div className="catalog-card" key={item.id}>{savedCard(item.title)}<span>{item.watched_on?.split("-").reverse().join("/")??"Data não informada"}{item.watched_at&&<> às <time dateTime={item.watched_at}>{sessionTime.format(new Date(item.watched_at))}</time></>}{item.rewatch?" · Revisto":""}</span>{owned&&<div className="diary-actions"><button type="button" aria-label={"Editar sessão de "+label(item.title)} title="Editar sessão" disabled={busy} onClick={()=>{setError("");setViewing(item);}}><UiIcon name="edit"/></button><button type="button" aria-label={"Excluir sessão de "+label(item.title)} title="Excluir sessão" disabled={busy} onClick={()=>{if(confirm("Excluir a sessão de "+label(item.title)+" do Diário?"))void action(()=>api("me/viewings/"+item.id,"DELETE"),"Registro excluído.");}}><UiIcon name="trash"/></button></div>}</div>)}</div>{!current.viewings?.length&&<p className="muted">Nenhuma sessão registrada.</p>}</section>}
+          {showSection("ranking")&&current.library?.some(item=>item.watched&&item.rating!=null)&&<section className="panel">
+            <h2>Ranking por nota</h2>
+            {[5,4,3,2,1].map(score=>{
+              const entries=current.library?.filter(item=>item.watched&&item.rating!=null&&Math.ceil(item.rating/2)===score);
+              return <div key={score} className={"public-ranking-tier rank-tier-"+(5-score)}>
+                <h3>Nota {score}</h3>
+                {entries?.length?<div className="public-ranking-cards">{entries.map(item=><div className="catalog-card" key={item.title}>{savedCard(item.title)}</div>)}</div>:<small>Nenhuma obra nesta faixa.</small>}
+              </div>;
+            })}
+          </section>}
           {!owned&&showSection("ranking")&&<section className="panel"><h2><UiIcon name="crown"/> Ranking</h2>{["movie","tv","anime"].map(kind=><div key={kind}><h3>{kind==="movie"?"Filmes":kind==="tv"?"Séries":"Animes"}</h3>{rankingCategories.map((category,tier)=><div className={"public-ranking-tier rank-tier-"+tier} key={tier}><h4>{category}</h4><div className="public-ranking-cards">{current.ranking?.filter(item=>item.tier===tier&&(known[item.title]?.anime?"anime":known[item.title]?.format)===kind).map(item=><div className="catalog-card" key={item.title}>{savedCard(item.title)}</div>)}</div></div>)}</div>)}</section>}
           {!owned&&!profileSections.some(key=>current.visibility?.[key])&&<p className="muted">As seções deste perfil estão privadas.</p>}</>}
         </section>)}
@@ -343,8 +353,8 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
           setPendingViewing({title:title.id,name:title.name,watchedAt:new Date().toISOString()});
         }}>Registrar sessão</button></>}</div>
       {entry.watched&&<div className="form">
-      {rankControl(title.id)}
-      {title.format==="movie"&&<StarRating key={title.id} showPreference disabled={busy} value={entry.rating} onChange={rating=>{void update("rating",{rating});}}/>}
+      {title.format!=="movie"&&rankControl(title.id)}
+      {title.format==="movie"&&<StarRating key={title.id} disabled={busy} value={entry.rating} onChange={rating=>{void update("rating",{rating});}}/>}
       <ReviewEditor key={title.id} title={title.id} initial={entry} disabled={busy} onPending={setReviewPending} onSaved={async()=>{await refresh();await refreshCommunity(title.id);}} visibility={visibilityControl({...entry,title:title.id})}/>
       </div>}</>}
       </div></div>

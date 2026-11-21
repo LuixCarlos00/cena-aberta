@@ -89,7 +89,7 @@ export function EpisodeRatings({title,seasons,publicSeasons,onSaved}:{title:stri
     {!loading&&!error&&!episodes.length&&<p>Nenhum episódio disponível.</p>}
     {episodes.map((episode,index)=><article className="record" key={episode.number}>
       <h3>{episode.number}. {episode.name}</h3>
-      <StarRating showPreference={index===0} value={ratings[episode.number]??null} disabled={busy||loading} onChange={value=>void rate(episode.number,value)}/>
+      <StarRating value={ratings[episode.number]??null} disabled={busy||loading} onChange={value=>void rate(episode.number,value)}/>
       {episode.summary&&<details><summary>Mostrar sinopse do episódio</summary><p>{episode.summary}</p></details>}
     </article>)}
   </section>;

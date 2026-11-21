@@ -1,10 +1,13 @@
 "use client";
+import {readPreference,writePreference} from "../lib/browser-preferences";
+import {rankingCategories} from "./film-ranking";
 import {useId,useState,useSyncExternalStore} from "react";
 
 const preferenceKey="cenaaberta.rating-control";
-let fallbackMode:"stars"|"list"="stars";
+type RatingMode = "stars" | "list" | "categories";
+let fallbackMode:RatingMode="stars";
 function readMode() {
-  try{return localStorage.getItem(preferenceKey)==="list"?"list":"stars";}
+  try{const saved=readPreference(preferenceKey);return saved==="categories"||saved==="list"?saved:"stars";}
   catch{return fallbackMode;}
 }
 function subscribeMode(notify:()=>void) {
@@ -15,13 +18,20 @@ function subscribeMode(notify:()=>void) {
     window.removeEventListener(preferenceKey,notify);
   };
 }
-function changeMode(mode:"stars"|"list") {
+function changeMode(mode:RatingMode) {
   fallbackMode=mode;
-  try{localStorage.setItem(preferenceKey,mode);}catch{/* Keep the preference in this tab. */}
+  try{writePreference(preferenceKey,mode);}catch{/* Keep the preference in this tab. */}
   window.dispatchEvent(new Event(preferenceKey));
 }
 
-export function StarRating({value,disabled,onChange,showPreference=false}:{value:number|null;disabled:boolean;onChange:(value:number|null)=>void;showPreference?:boolean}) {
+export function RatingPreference(){
+  const mode=useSyncExternalStore(subscribeMode,readMode,()=>"stars");
+  return <label>Formato de avaliação<select value={mode} onChange={event=>changeMode(event.target.value as RatingMode)}>
+    <option value="stars">Estrelas</option><option value="list">Nota numérica</option><option value="categories">Categorias do ranking</option>
+  </select></label>;
+}
+
+export function StarRating({value,disabled,onChange}:{value:number|null;disabled:boolean;onChange:(value:number|null)=>void}) {
   const name=useId();
   const mode=useSyncExternalStore(subscribeMode,readMode,()=>"stars");
   const [preview,setPreview]=useState<number|null>(null);
@@ -29,9 +39,6 @@ export function StarRating({value,disabled,onChange,showPreference=false}:{value
   return <fieldset className="star-rating" disabled={disabled}>
     <legend>Minha nota</legend>
     <div className="rating-row">
-      {showPreference&&<button type="button" className="rating-mode rating-icon" title={mode==="stars"?"Nota em estrelas":"Nota em lista"} aria-label={mode==="stars"?"Nota em estrelas":"Nota em lista"} onClick={()=>{setPreview(null);changeMode(mode==="stars"?"list":"stars");}}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">{mode==="list"?<path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/>:<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4L12 17.6l-5.7 3 1.1-6.4-4.6-4.5 6.4-.9Z"/>}</svg>
-      </button>}
       <button type="button" className="rating-clear rating-icon" title="Limpar nota" aria-label="Limpar nota" disabled={disabled||value===null} onClick={()=>{setPreview(null);onChange(null);}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m14 3 7 7-11 11H6l-4-4L14 3Zm-7 9 7 7m-4 2h12"/></svg></button>
 
       {mode==="stars"?<>
@@ -52,7 +59,10 @@ export function StarRating({value,disabled,onChange,showPreference=false}:{value
       </div>
       <span className="rating-value" aria-live="polite">{active?(active/2).toLocaleString("pt-BR")+" / 5":""}</span>
 
-      </>:(
+      </>:mode==="categories"?<div className="rank-choices">{rankingCategories.map((label,index)=>{
+        const score=(5-index)*2;
+        return <button key={label} type="button" className={"rank-choice rank-tier-"+index} aria-pressed={value!==null&&Math.ceil(value/2)===score/2} onClick={()=>onChange(score)}>{label}</button>;
+      }).reverse()}</div>:(
         <select className="rating-note-select" aria-label="Minha nota" value={value??""} onChange={event=>{setPreview(null);onChange(event.target.value?Number(event.target.value):null);}}>
           <option value="" aria-label="Nenhuma nota">—</option>
           {Array.from({length:10},(_,index)=><option key={index} value={index+1}>{((index+1)/2).toLocaleString("pt-BR")} estrelas</option>)}
