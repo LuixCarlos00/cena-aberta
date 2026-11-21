@@ -4,6 +4,8 @@ import {SpoilerControl} from "./action-icons";
 export function ReviewEditor({title,initial,disabled,onSaved,onPending,visibility}:{title:string;initial:{review:string|null;spoiler:boolean;version:number};disabled:boolean;onSaved:()=>Promise<void>;onPending:(value:boolean)=>void;visibility:ReactNode}){
  const inputId=useId();
  const [review,setReview]=useState(initial.review??""),[spoiler,setSpoiler]=useState(initial.spoiler),[saving,setSaving]=useState(false),[error,setError]=useState("");
+ const [editing,setEditing]=useState(!initial.review);
+ const [conflict,setConflict]=useState(false);
  const [confirmed,setConfirmed]=useState(false);
  const saved=useRef({review:initial.review??"",spoiler:initial.spoiler,version:initial.version}),pending=useRef(false);
  const dirty=review!==saved.current.review||spoiler!==saved.current.spoiler;
@@ -12,15 +14,37 @@ export function ReviewEditor({title,initial,disabled,onSaved,onPending,visibilit
   pending.current=true;setConfirmed(false);setSaving(true);setError("");
   try{
    const r=await fetch("/api/v1/me/library/"+title+"/review",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({review,spoiler,version:saved.current.version})});
-   const data=await r.json();if(!r.ok)throw Error(data.message||"Não foi possível salvar a resenha.");
-   saved.current={review,spoiler,version:data.version};setConfirmed(true);void onSaved().catch(()=>{});
+   const data=await r.json();
+   if(r.status===409){
+    const response=await fetch("/api/v1/me",{cache:"no-store"});
+    if(!response.ok)throw Error("Não foi possível carregar a versão mais recente.");
+    const dashboard=await response.json();
+    const latest=dashboard.library?.find((item:{title:string})=>item.title===title);
+    if(!latest)throw Error("Resenha indisponível. Seu texto continua no editor.");
+    saved.current={review:latest.review??"",spoiler:latest.spoiler,version:latest.version};
+    setConflict(true);
+    return;
+   }
+   if(!r.ok)throw Error(data.message||"Não foi possível salvar a resenha.");
+   const stored=data.review??"";
+   saved.current={review:stored,spoiler:data.spoiler,version:data.version};
+   setReview(stored);setSpoiler(data.spoiler);setEditing(!stored);setConflict(false);setConfirmed(true);void onSaved().catch(()=>{});
   }catch(e){setError((e as Error).message);}finally{pending.current=false;setSaving(false);}
  }
  useEffect(()=>{onPending(dirty||saving);},[dirty,saving,onPending]);
  useEffect(()=>{const warn=(event:BeforeUnloadEvent)=>{if(dirty||saving){event.preventDefault();event.returnValue="";}};window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty,saving]);
+ function cancel(){
+  setReview(saved.current.review);setSpoiler(saved.current.spoiler);setEditing(!saved.current.review);setConflict(false);setError("");
+ }
+ if(!editing)return <div className="form"><strong>Minha resenha</strong><p className="review-text">{review}</p>
+  <div className="row">{visibility}{spoiler&&<small>Contém spoiler</small>}<button type="button" disabled={disabled} onClick={()=>{setConfirmed(false);setEditing(true);}}>Editar resenha</button></div>
+  {confirmed&&<p className="message" role="status">✓ Resenha salva.</p>}
+ </div>;
  return <div className="form"><label htmlFor={inputId}>Minha resenha</label><textarea id={inputId} name="review" maxLength={3000} value={review} disabled={disabled||saving} onChange={e=>{setConfirmed(false);setReview(e.target.value);setError("");}}/>
  <div className="row"><span className="review-controls"><SpoilerControl initial={spoiler} disabled={disabled||saving} onChange={value=>{setConfirmed(false);setSpoiler(value);setError("");}}/>{visibility}</span></div>
+ {conflict&&<div className="message" role="alert"><strong>Esta resenha mudou em outra sessão.</strong><p>Versão salva:</p><p className="review-text">{saved.current.review||"Sem resenha"}</p><small>{saved.current.spoiler?"Contém spoiler":"Sem spoiler"}</small><p>Confira seu rascunho acima antes de salvar.</p></div>}
  <button type="button" className="primary" disabled={disabled||saving||!dirty} onClick={()=>void save()}>{saving?"Salvando…":"Salvar resenha"}</button>
+ {(saved.current.review||conflict)&&<button type="button" disabled={saving} onClick={cancel}>Cancelar edição</button>}
  <div role="status" aria-atomic="true" className="review-status">
   {confirmed ? <p className="message"><span aria-hidden="true">✓ </span>Resenha salva.</p> : <small>{saving ? "Salvando resenha…" : dirty ? "Alterações ainda não salvas." : ""}</small>}
  </div>
