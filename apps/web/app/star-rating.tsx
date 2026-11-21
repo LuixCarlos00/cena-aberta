@@ -1,13 +1,12 @@
 "use client";
 import {readPreference,writePreference} from "../lib/browser-preferences";
-import {rankingCategories} from "./film-ranking";
 import {useId,useState,useSyncExternalStore} from "react";
 
 const preferenceKey="cenaaberta.rating-control";
-type RatingMode = "stars" | "list" | "categories";
+type RatingMode = "stars" | "list";
 let fallbackMode:RatingMode="stars";
 function readMode() {
-  try{const saved=readPreference(preferenceKey);return saved==="categories"||saved==="list"?saved:"stars";}
+  try{const saved=readPreference(preferenceKey);return saved==="list"?"list":"stars";}
   catch{return fallbackMode;}
 }
 function subscribeMode(notify:()=>void) {
@@ -27,7 +26,7 @@ function changeMode(mode:RatingMode) {
 export function RatingPreference(){
   const mode=useSyncExternalStore(subscribeMode,readMode,()=>"stars");
   return <label>Formato de avaliação<select value={mode} onChange={event=>changeMode(event.target.value as RatingMode)}>
-    <option value="stars">Estrelas</option><option value="list">Nota numérica</option><option value="categories">Categorias do ranking</option>
+    <option value="stars">Estrelas</option><option value="list">Nota numérica</option>
   </select></label>;
 }
 
@@ -59,10 +58,7 @@ export function StarRating({value,disabled,onChange}:{value:number|null;disabled
       </div>
       <span className="rating-value" aria-live="polite">{active?(active/2).toLocaleString("pt-BR")+" / 5":""}</span>
 
-      </>:mode==="categories"?<div className="rank-choices">{rankingCategories.map((label,index)=>{
-        const score=(5-index)*2;
-        return <button key={label} type="button" className={"rank-choice rank-tier-"+index} aria-pressed={value!==null&&Math.ceil(value/2)===score/2} onClick={()=>onChange(score)}>{label}</button>;
-      }).reverse()}</div>:(
+      </>:(
         <select className="rating-note-select" aria-label="Minha nota" value={value??""} onChange={event=>{setPreview(null);onChange(event.target.value?Number(event.target.value):null);}}>
           <option value="" aria-label="Nenhuma nota">—</option>
           {Array.from({length:10},(_,index)=><option key={index} value={index+1}>{((index+1)/2).toLocaleString("pt-BR")} estrelas</option>)}
