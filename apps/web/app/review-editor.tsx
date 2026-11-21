@@ -45,9 +45,9 @@ export function ReviewEditor({title,initial,disabled,onSaved,onPending,visibilit
  function cancel(){
   setReview(saved.current.review);setSpoiler(saved.current.spoiler);setEditing(!saved.current.review);setConflict(false);setError("");
  }
- if(reloadRequired)return <div className="form" role="status"><p>Edição cancelada. Outra sessão já salvou uma alteração.</p>{saving?<small>Carregando resenha…</small>:<button type="button" onClick={()=>window.location.reload()}>Recarregar página</button>}</div>;
+ if(reloadRequired)return <div className="form" role="status"><p className="message review-conflict">Edição cancelada. Outra sessão já salvou uma alteração.</p>{saving?<small>Carregando resenha…</small>:<button type="button" onClick={()=>window.location.reload()}>Recarregar página</button>}</div>;
  if(!editing)return <div className="form"><strong>Minha resenha</strong><p className="review-text">{review||"Sem resenha."}</p>
-  {conflict&&<p className="message" role="status">Edição cancelada. A alteração salva na outra sessão foi mantida.</p>}
+  {conflict&&<p className="message review-conflict" role="status">Edição cancelada. A alteração salva na outra sessão foi mantida.</p>}
   <div className="row">{visibility}{spoiler&&<small>Contém spoiler</small>}<button type="button" disabled={disabled} onClick={()=>{setConfirmed(false);setConflict(false);setEditing(true);}}>{review?"Editar resenha":"Escrever resenha"}</button></div>
   {confirmed&&<p className="message" role="status">✓ Resenha salva.</p>}
  </div>;

@@ -316,3 +316,6 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .preview-film-caption small{color:#d5dbe5}
 
 .landing-match-icon{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border:1px solid currentColor;border-radius:10px}.landing-match-icon svg{display:block}
+
+.message.review-conflict{background:#332b15;color:#ffe197;border-color:#ac883a}
+:root[data-theme=light] .message.review-conflict{background:#fff4cc;color:#604700;border-color:#b99130}
