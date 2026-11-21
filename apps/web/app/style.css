@@ -299,3 +299,18 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .feedback-attachments{display:grid;gap:8px}.feedback-attachments input{width:100%;min-width:0}.feedback-images{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin:12px 0}.feedback-images figure{margin:0;min-width:0}.feedback-images img{width:100%;height:130px;object-fit:contain;background:var(--input);border:1px solid var(--line);border-radius:8px}.feedback-images button{width:100%;min-height:44px}.feedback-dialog{max-height:90dvh;overflow-y:auto}
 
 .feedback-images .feedback-preview{padding:0;border:0;background:none}.feedback-image-dialog{width:min(95vw,1200px);max-height:95dvh;padding:16px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px}.feedback-image-dialog img{display:block;width:100%;height:auto;margin-top:12px}.feedback-image-dialog::backdrop{background:#000b}
+
+:root[data-theme=light] .landing-login{background:var(--panel);color:var(--text)}
+:root[data-theme=light] .landing-login:hover{background:var(--surface);border-color:var(--accent)}
+:root[data-theme=light] .landing-preview{background:radial-gradient(ellipse at top,#eee8f5,var(--surface) 65%);border-color:#b7b4c4}
+:root[data-theme=light] .landing-together{background:linear-gradient(130deg,#f6ead6,#e9eef6);border-color:#c8b995}
+:root[data-theme=light] .landing-feature-icon{background:#f6e8d0;border-color:#d6bc91}
+:root[data-theme=light] .landing-match{background:#e5f2e9;border-color:#8aae98;color:#203f2d}
+:root[data-theme=light] .landing-match>span{color:#2e6a43}
+:root[data-theme=light] .landing-match small{color:#405f4b}
+:root[data-theme=light] .landing-match.preview-no-match{background:#f6ead8;border-color:#bc9d70;color:#5b431f}
+:root[data-theme=light] .preview-no-match>span,:root[data-theme=light] .preview-no-match small{color:#6b5029}
+:root[data-theme=light] .preview-voters>span{background:#e1e6ee;color:#46546a;border-color:#a5b0c0}
+:root[data-theme=light] .preview-voters>span.voted{background:#dcefe2;color:#245b39;border-color:#77a486}
+:root[data-theme=light] .preview-voters>span.passed{background:#f5dfdf;color:#7f3434;border-color:#c88c8c}
+.preview-film-caption small{color:#d5dbe5}
