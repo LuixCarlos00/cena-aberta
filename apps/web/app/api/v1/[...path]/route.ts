@@ -1,46 +1,12 @@
 import {profileState} from "../../../../lib/profile";
 import {getServerSession} from "next-auth";
 import {authOptions} from "../../../../lib/auth";
+import {resolveRoute} from "../../../../lib/api-routes";
 
-const routes = [
-  ["PUT", /^notifications\/rooms\/[a-f0-9-]{36}\/read$/,"social"],
-  ["GET", /^notifications$/,"social"],
-  ["GET", /^library-page$/,"social"],
-  ["GET", /^diary$/,"social"],
-  ["POST", /^backups$/,"backup"],
-  ["GET", /^backups(?:\/[a-f0-9]{48})?$/,"backup"],
-  ["GET", /^feedback\/[a-f0-9-]{36}\/images\/[a-f0-9-]{36}$/,"social"],
-  ["PUT", /^rooms\/[a-f0-9-]{36}\/reconsider\/[a-z0-9-]+$/,"social"],
-  ["PUT", /^me\/visibility$/,"social"],
-  ["DELETE", /^rooms\/[a-f0-9-]{36}$/,"social"],
-  ["GET", /^friends(?:\/(?:search|status|profile))?$/,"social"],
-  ["POST", /^friends$/,"social"],
-  ["PUT", /^friends\/[a-f0-9-]{36}$/,"social"],
-  ["PUT", /^rooms\/[a-f0-9-]{36}\/settings$/,"social"],
-  ["GET", /^feedback(?:\/access)?$/,"social"],
-  ["POST", /^feedback$/,"social"],
-  ["PUT", /^feedback\/[a-f0-9-]{36}(?:\/thanks)?$/,"social"],
-  ["GET", /^profiles$/,"social"],
-  ["GET", /^rooms(?:\/[a-f0-9-]{36}(?:\/friends)?)?$/,"social"],
-  ["POST", /^rooms(?:\/[a-f0-9-]{36}\/(?:join|leave|invite|start|more|choose\/[a-z0-9-]+))?$/,"social"],
-  ["PUT", /^rooms\/[a-f0-9-]{36}\/votes\/[a-z0-9-]+$/,"social"],
-  ["GET", /^titles\/[a-z0-9-]+\/seasons\/[0-9]+$/,"catalog"],
-  ["GET", /^me\/episodes\/[a-z0-9-]+(?:\/[0-9]+)?$/,"social"],
-  ["PUT", /^me\/episodes\/[a-z0-9-]+\/[0-9]+\/[0-9]+$/,"social"],
-  ["GET", /^me\/ranking$/,"social"],
-  ["PUT", /^me\/ranking(?:\/[a-z0-9-]+)?$/,"social"],
-  ["GET", /^title-batch$/,"catalog"],
-  ["GET", /^titles(?:\/(?:demo-[a-z0-9-]+|tmdb-(?:movie|tv)-[0-9]+))?$/,"catalog"],
-  ["PUT", /^titles\/[a-z0-9-]+\/spoiler-vote$/,"social"],
-  ["GET", /^(?:me|profiles\/[a-z0-9_]+|titles\/[a-z0-9-]+\/(?:reviews|community))$/,"social"],
-  ["PUT", /^me\/(?:profile|library\/[a-z0-9-]+\/(?:watched|interest|rating|review|rewatching|visibility)|viewings\/[a-f0-9-]{36})$/,"social"],
-  ["POST", /^me\/viewings$/,"social"],
-  ["DELETE", /^me\/viewings\/[a-f0-9-]{36}$/,"social"],
-] as const;
 
 async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>}) {
   const path = (await params).path.join("/");
-  const route = routes.find(([method,pattern])=>method===request.method && pattern.test(path));
+  const route = resolveRoute(request.method,path);
   if (!route) return Response.json({message:"Operação não encontrada."},{status:404});
   const session=await getServerSession(authOptions) as {actor?:string} | null;
   if(!session?.actor) return Response.json({message:"Entre para continuar."},{status:401});
@@ -54,8 +20,8 @@ async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>})
     const origin=process.env.NEXTAUTH_URL ? new URL(process.env.NEXTAUTH_URL).origin : url.origin;
     if(request.headers.get("origin")!==origin) return Response.json({message:"Origem inválida."},{status:403});
   }
-  const catalog=route[2]==="catalog";
-  const backup=route[2]==="backup";
+  const catalog=route==="catalog";
+  const backup=route==="backup";
   const base=backup ? "http://backup:8183" : catalog ? process.env.CATALOG_URL ?? "http://127.0.0.1:8181" : process.env.SOCIAL_URL ?? "http://127.0.0.1:8182";
   const secret=catalog ? process.env.CATALOG_INTERNAL_SECRET : process.env.SOCIAL_INTERNAL_SECRET;
   if(!secret) return Response.json({message:"Serviço indisponível."},{status:503});
