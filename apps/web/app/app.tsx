@@ -250,7 +250,9 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   },[pendingViewing]);
   const label=(id:string)=>known[id]?.name??labels[id]??"Obra do catálogo";
   const fail=(e:unknown)=>setError(e instanceof Error?e.message:"Falha inesperada.");
-  const refresh=useCallback(async()=>{const value=await api<Dashboard>(pageTitle?"me?title="+encodeURIComponent(pageTitle):tab==="ranking"?"me":"me?summary=true");setData(value);return value;},[pageTitle,tab==="ranking"]);
+  // A aba de ranking precisa do dashboard completo; as demais usam o resumo.
+  const rankingTab=tab==="ranking";
+  const refresh=useCallback(async()=>{const value=await api<Dashboard>(pageTitle?"me?title="+encodeURIComponent(pageTitle):rankingTab?"me":"me?summary=true");setData(value);return value;},[pageTitle,rankingTab]);
   useEffect(()=>{if(authenticated) refresh().catch(fail);},[authenticated,refresh]);
   useEffect(()=>{
     if(!authenticated || (tab==="profile"||tab==="ranking") || pageTitle) return;
