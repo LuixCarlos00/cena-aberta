@@ -10,6 +10,8 @@ import {CatalogSearch} from "./catalog-search";
 import {CatalogDrawer} from "./catalog-drawer";
 import {FilmRanking,rankingCategories} from "./film-ranking";
 import type {Release} from "../lib/releases";
+import type {Title} from "../lib/types";
+import {CommunityScore,FilmFacts,Poster,Spoiler} from "./title-parts";
 import {Landing} from "./landing";
 import {UiIcon} from "./ui-icons";
 import {StarRating} from "./star-rating";
@@ -19,8 +21,6 @@ import {ReviewEditor} from "./review-editor";
 import {Icon as ActionIcon,IconAction} from "./action-icons";
 import {ProfileAvatar,ProfileForm,type Profile,type ProfileInput} from "./profile-form";
 
-type TitleDetails={genres:string[];runtime:number|null;seasons:number|null;episodes:number|null;directors:string[];creators:string[];cast:string[]};
-type Title={id:string;format:string;anime:boolean;name:string;original:string;year:string;summary:string;poster:string|null;details?:TitleDetails|null};
 type Entry={title:string;watched:boolean;interest:boolean;rewatching:boolean;rating:number|null;review:string|null;spoiler:boolean;version:number;hidden?:boolean;evaluation_public?:boolean;viewer_watched?:boolean;my_vote?:boolean|null};
 type Viewing={id:string;title:string;watched_on:string|null;watched_at:string|null;rewatch:boolean};
 type PendingViewing={title:string;name:string;watchedAt:string};
@@ -42,17 +42,6 @@ const demoEpisodeRatings=[
   {viewer:"Rafael",episode:1,rating:6},{viewer:"Bia",episode:2,rating:10},
   {viewer:"Diego",episode:3,rating:7},
 ];
-function CommunityScore({average,count,demo=false,episodic=false}:{average:number|null;count:number;demo?:boolean;episodic?:boolean}) {
-  return <div className="community-score">
-    <div className="community-score-value"><strong>{average===null?"–":average.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:2})}</strong><span> / 5</span></div>
-    <div>
-      <div className="community-stars" aria-hidden="true">
-        ★★★★★<span style={{width:(average??0)*20+"%"}}>★★★★★</span>
-      </div>
-      <span className="muted">{episodic?(count===0?"Ainda não há notas públicas por episódio":count+(count===1?" pessoa avaliou":" pessoas avaliaram")):count===0?"Ainda não há notas públicas":demo?count+" avaliações fictícias":count+(count===1?" avaliação pública":" avaliações públicas")}</span>
-    </div>
-  </div>;
-}
 const categories=[["all","Explorar"],["movie","Filmes"],["tv","Séries"],["anime","Animes"]];
 const labels:Record<string,string>={"demo-ultimo-rolo":"O Último Rolo","demo-mare-alta":"Maré Alta","demo-lua-de-papel":"Lua de Papel","demo-neon-norte":"Neon Norte","demo-fim-da-linha":"Fim da Linha","demo-arquipelago":"Arquipélago"};
 const empty:Entry={title:"",watched:false,interest:false,rewatching:false,rating:null,review:null,spoiler:false,version:0};
@@ -156,31 +145,6 @@ function DiaryDialog({dashboard,username,title,name,onClose,renderSession,visibi
   </dialog>;
 }
 
-function Poster({title,large=false}:{title:Title;large?:boolean}) {
-  const [failedPoster,setFailedPoster]=useState<string|null>(null);
-  const variant=Array.from(title.id).reduce((sum,c)=>sum+c.charCodeAt(0),0)%6;
-  return <div className={`poster art-${variant} ${large?"poster-large":""}`}>{title.poster&&title.poster!==failedPoster?
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={title.poster} alt={large?"Pôster de "+title.name:""} loading={large?"eager":"lazy"} onError={()=>setFailedPoster(title.poster)}/>:<><i className="sun"/><i className="terrain"/><span>{title.name}</span></>}</div>;
-}
-function FilmFacts({title}:{title:Title}) {
-  const details=title.details;
-  const fields=[
-    ["Título original",title.original!==title.name?title.original:""],
-    ["Gêneros",details?.genres.join(", ")],
-    ["Duração",details?.runtime?details.runtime+" min":""],
-    ["Temporadas",details?.seasons],["Episódios",details?.episodes],
-    ["Direção",details?.directors.join(", ")],["Criação",details?.creators.join(", ")],
-    ["Elenco",details?.cast.join(", ")],
-  ].filter(([,value])=>Boolean(value));
-  return <>{!!fields.length&&<dl className="film-facts">{fields.map(([label,value])=>
-    <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
-    {title.id.startsWith("demo-")&&<p className="muted"><small>Obra e pôster ilustrativos.</small></p>}</>;
-}
-function Spoiler({hidden,children}:{hidden:boolean;children:ReactNode}) {
-  const [open,setOpen]=useState(false);
-  return <div className="review-text">{hidden&&!open?<button className="small" onClick={()=>setOpen(true)}>Revelar spoiler</button>:children}</div>;
-}
 type SpoilerState={spoiler:boolean;my_vote?:boolean|null};
 function ReviewReader({name,titleId,author,own,watched,text,version,initial}:{
   name?:string;titleId:string;author:string;own:boolean;watched:boolean;text:string;version:number;initial:SpoilerState
