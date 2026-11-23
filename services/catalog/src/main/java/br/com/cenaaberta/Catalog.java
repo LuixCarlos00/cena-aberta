@@ -135,11 +135,22 @@ public class Catalog {
 
 
     private static final Map<Integer,String> GENRES=Map.ofEntries(Map.entry(28,"Ação"),Map.entry(12,"Aventura"),Map.entry(16,"Animação"),Map.entry(35,"Comédia"),Map.entry(80,"Crime"),Map.entry(99,"Documentário"),Map.entry(18,"Drama"),Map.entry(10751,"Família"),Map.entry(14,"Fantasia"),Map.entry(36,"História"),Map.entry(27,"Terror"),Map.entry(10402,"Música"),Map.entry(9648,"Mistério"),Map.entry(10749,"Romance"),Map.entry(878,"Ficção científica"),Map.entry(10770,"Cinema TV"),Map.entry(53,"Thriller"),Map.entry(10752,"Guerra"),Map.entry(37,"Faroeste"));
-    record Suggestions(List<String> exclude,List<String> watched,List<String> liked,int page,Integer genre,List<Integer> genres) {}
+    record Suggestions(List<String> exclude,List<String> watched,List<String> liked,int page,Integer genre,List<Integer> genres,String type) {}
+    record Candidate(Title title,JsonNode item,double score) {}
     private static List<Integer> selectedGenres(Integer genre,List<Integer> genres) {
         var selected=genres!=null?genres:genre==null||genre==0?List.<Integer>of():List.of(genre);
         if(selected.size()>GENRES.size()||selected.stream().anyMatch(g->g==null||!GENRES.containsKey(g)))throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         return selected.stream().distinct().toList();
+    }
+    private static List<Integer> roomGenreIds(String format,List<Integer> genres){
+        if(!format.equals("tv"))return genres;
+        // TMDB combines several film genres under shared TV categories.
+        return genres.stream().map(id->switch(id){
+            case 28,12 -> 10759;
+            case 878,14 -> 10765;
+            case 10752 -> 10768;
+            default -> id;
+        }).distinct().toList();
     }
     @PostMapping("/suggestions")
     Map<String,Object> suggestions(@RequestBody Suggestions input) {
@@ -152,32 +163,49 @@ public class Catalog {
             var rows=db.queryForList("select details from title where id=?",String.class,id);
             for(String json:rows)if(json!=null)try {for(var preferredGenre:mapper.readTree(json).path("genres"))preferred.add(preferredGenre.asText());}catch(Exception ignored){}
         }
-        if(token.isBlank())return Map.of("items",fixtures.stream().filter(t->t.format().equals("movie")&&!excluded.contains(t.id())&&(genres.isEmpty()||genres.stream().anyMatch(g->demoDetails(t.id()).genres().contains(GENRES.get(g))))).limit(20).toList(),"nextPage",input.page()+2);
-        var buckets=new ArrayList<List<JsonNode>>();
-        String today=java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
-        String year=java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusMonths(12).toString();
-        String[] sorts={"primary_release_date.desc&primary_release_date.gte="+year+"&vote_count.gte=30","vote_average.desc&vote_count.gte=300","popularity.desc&vote_count.gte=30"};
-        for(String sort:sorts){
-            var bucket=new ArrayList<JsonNode>();
-            for(int page=input.page();page<input.page()+2;page++)for(var item:remote("/discover/movie?include_adult=false&include_video=false&primary_release_date.lte="+today+"&sort_by="+sort+"&page="+page+(genres.isEmpty()?"":"&with_genres="+genres.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining("%7C")))).path("results")) {
-                String date=item.path("release_date").asText();
-                if(!date.isBlank()&&date.compareTo(today)<=0&&!item.path("adult").asBoolean()&&!excluded.contains("tmdb-movie-"+item.path("id").asLong()))bucket.add(item);
+        String type=input.type()==null?"movie":input.type();
+        if(!Set.of("all","movie","tv","anime").contains(type))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Tipo de obra inválido.");
+        var formats=type.equals("tv")||type.equals("movie")?List.of(type):List.of("movie","tv");
+        if(token.isBlank())return Map.of("items",fixtures.stream().filter(t->formats.contains(t.format())&&(!type.equals("anime")||t.anime())&&!excluded.contains(t.id())&&(genres.isEmpty()||genres.stream().anyMatch(g->demoDetails(t.id()).genres().contains(GENRES.get(g))))).limit(20).toList(),"nextPage",input.page()+2);
+        var buckets=new ArrayList<List<Candidate>>();
+        var today=java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        for(int tier=0;tier<3;tier++){
+            var bucket=new ArrayList<Candidate>();
+            for(String format:formats){
+                String dateField=format.equals("tv")?"first_air_date":"primary_release_date";
+                String sort=switch(tier){
+                    case 0 -> "sort_by="+dateField+".desc&"+dateField+".gte="+today.minusMonths(12)+"&vote_count.gte=30";
+                    case 1 -> "sort_by=vote_average.desc&vote_count.gte=300";
+                    default -> "sort_by=popularity.desc&vote_count.gte=30";
+                };
+                List<Integer> ids=roomGenreIds(format,genres);
+                String filter=ids.isEmpty()?"":"&with_genres="+ids.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining("%7C"));
+                if(type.equals("anime"))filter="&with_original_language=ja&with_genres=16";
+                String path="/discover/"+format+"?include_adult=false&"+dateField+".lte="+today+"&"+sort+filter;
+                for(int page=input.page();page<input.page()+2;page++)for(var item:remote(path+"&page="+page).path("results")){
+                    String date=item.path(format.equals("tv")?"first_air_date":"release_date").asText();
+                    Title title=mapped(format,item);
+                    if(date.isBlank()||date.compareTo(today.toString())>0||item.path("adult").asBoolean()||excluded.contains(title.id()))continue;
+                    if(type.equals("anime")&&(!title.anime()||(!ids.isEmpty()&&java.util.stream.StreamSupport.stream(item.path("genre_ids").spliterator(),false).noneMatch(g->ids.contains(g.asInt())))))continue;
+                    double votes=item.path("vote_count").asDouble();
+                    double score=(votes*item.path("vote_average").asDouble()+300*6.5)/(votes+300);
+                    if(!watched.contains(title.id()))score+=100;
+                    if(!preferred.isEmpty()){
+                        var cached=db.queryForList("select details from title where id=?",String.class,title.id());
+                        if(!cached.isEmpty()&&cached.getFirst()!=null)try{
+                            for(var g:mapper.readTree(cached.getFirst()).path("genres"))if(preferred.contains(g.asText())){score+=1.5;break;}
+                        }catch(com.fasterxml.jackson.core.JsonProcessingException ignored){}
+                    }
+                    bucket.add(new Candidate(title,item,score));
+                }
             }
-            bucket.sort(java.util.Comparator.<JsonNode>comparingDouble(item->{
-                String id="tmdb-movie-"+item.path("id").asLong();
-                double votes=item.path("vote_count").asDouble(),rating=item.path("vote_average").asDouble();
-                double weighted=(votes*rating+300*6.5)/(votes+300);
-                // Cached genre affinity is a bonus; unseen movies always take precedence.
-                boolean affinity=false;
-                for(String json:db.queryForList("select details from title where id=?",String.class,id))if(json!=null)try{for(var g:mapper.readTree(json).path("genres"))if(preferred.contains(g.asText()))affinity=true;}catch(Exception ignored){}
-                return (watched.contains(id)?0:100)+weighted+(affinity?1.5:0);
-            }).reversed());
+            bucket.sort(Comparator.comparingDouble(Candidate::score).reversed());
             buckets.add(bucket);
         }
         var result=new ArrayList<Title>();var selected=new HashSet<>(excluded);
         int[] quotas={8,8,4};
-        for(int b=0;b<3;b++){int taken=0;for(var item:buckets.get(b)){Title title=mapped("movie",item);if(selected.add(title.id())){storeSummary(title);result.add(title);if(++taken==quotas[b])break;}}}
-        for(var bucket:buckets)for(var item:bucket){if(result.size()>=20)break;Title title=mapped("movie",item);if(selected.add(title.id())){storeSummary(title);result.add(title);}}
+        for(int b=0;b<3;b++){int taken=0;for(var c:buckets.get(b))if(selected.add(c.title().id())){storeSummary(c.title(),c.item());result.add(c.title());if(++taken==quotas[b])break;}}
+        for(var bucket:buckets)for(var c:bucket){if(result.size()>=20)break;if(selected.add(c.title().id())){storeSummary(c.title(),c.item());result.add(c.title());}}
         Collections.shuffle(result);
         return Map.of("items",result,"nextPage",input.page()+2);
     }
@@ -234,7 +262,7 @@ public class Catalog {
 
                 Title title = mapped(format,item);
 
-                if (!type.equals("anime") || title.anime()) { storeSummary(title); found.add(title); }
+                if (!type.equals("anime") || title.anime()) { storeSummary(title,item); found.add(title); }
 
             }
 
@@ -416,12 +444,33 @@ public class Catalog {
 
 
 
-    private void storeSummary(Title title) {
-        if(db.queryForObject("select count(*) from title where id=?",Integer.class,title.id())>0)return;
-        try {
-            db.update("insert into title(id,format,anime,name,original,release_year,summary,poster) values(?,?,?,?,?,?,?,?)",
-                title.id(),title.format(),title.anime(),title.name(),title.original(),title.year(),title.summary(),title.poster());
-        } catch(org.springframework.dao.DuplicateKeyException concurrentInsert) { /* Another request already cached it. */ }
+    private void storeSummary(Title title, JsonNode item) {
+        var ids = new TreeSet<Integer>();
+        JsonNode genres = item.path("genre_ids");
+        if (genres.isArray()) {
+            for (JsonNode genre : genres) {
+                if (!genre.isIntegralNumber() || !genre.canConvertToInt() || genre.intValue() <= 0) {
+                    ids.clear();
+                    break;
+                }
+                ids.add(genre.intValue());
+            }
+        }
+        String encoded = ids.isEmpty() ? null : ids.stream().map(String::valueOf)
+            .collect(java.util.stream.Collectors.joining(","));
+        var existing = db.queryForList("select genre_ids from title where id=?", String.class, title.id());
+        if (existing.isEmpty()) {
+            try {
+                db.update("insert into title(id,format,anime,name,original,release_year,summary,poster,genre_ids) values(?,?,?,?,?,?,?,?,?)",
+                    title.id(),title.format(),title.anime(),title.name(),title.original(),title.year(),title.summary(),title.poster(),encoded);
+                return;
+            } catch (org.springframework.dao.DuplicateKeyException concurrentInsert) {
+                // A concurrent detail or summary request inserted the title.
+            }
+        }
+        if (encoded != null && (existing.isEmpty() || !encoded.equals(existing.getFirst()))) {
+            db.update("update title set genre_ids=? where id=?", encoded, title.id());
+        }
     }
 
     @GetMapping("/title-batch") List<Title> batch(@RequestParam List<String> ids,@RequestParam(defaultValue="0") int genre,@RequestParam(required=false) List<Integer> genres) {
@@ -439,13 +488,22 @@ public class Catalog {
 
         var storedIds = ids.stream().distinct().filter(id -> id.matches("tmdb-(movie|tv)-[1-9][0-9]{0,12}")).toList();
 
+        var matches = new HashMap<String, Boolean>();
+        var filmIds = selected.stream().map(String::valueOf).toList();
+        var tvIds = roomGenreIds("tv",selected).stream().map(String::valueOf).toList();
         if (!storedIds.isEmpty()) {
 
             String placeholders = String.join(",", Collections.nCopies(storedIds.size(), "?"));
 
             output.addAll(db.query("select * from title where id in (" + placeholders + ")",
 
-                (row,n) -> new Title(row.getString("id"),row.getString("format"),row.getBoolean("anime"),row.getString("name"),row.getString("original"),row.getString("release_year"),row.getString("summary"),row.getString("poster")),storedIds.toArray()));
+                (row,n) -> {
+                    String id = row.getString("id");
+                    String encoded = row.getString("genre_ids");
+                    if (!selected.isEmpty() && encoded != null)
+                        matches.put(id, !Collections.disjoint("tv".equals(row.getString("format"))?tvIds:filmIds, Arrays.asList(encoded.split(","))));
+                    return new Title(id,row.getString("format"),row.getBoolean("anime"),row.getString("name"),row.getString("original"),row.getString("release_year"),row.getString("summary"),row.getString("poster"));
+                },storedIds.toArray()));
 
         }
 
@@ -467,10 +525,27 @@ public class Catalog {
             }
         }
         if(!selected.isEmpty()) {
-            var filtered=new ArrayList<Title>();
-            try(var executor=java.util.concurrent.Executors.newFixedThreadPool(6)) {
-                var tasks=output.stream().map(t->executor.submit(()->detail(t.id()))).toList();
-                for(var task:tasks)try{var t=task.get();if(t.details()!=null&&selected.stream().anyMatch(g->t.details().genres().contains(GENRES.get(g))))filtered.add(t);}catch(Exception e){if(e instanceof InterruptedException)Thread.currentThread().interrupt();throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Não foi possível verificar os gêneros. Tente novamente.");}
+            var fallback = output.stream().filter(t -> !matches.containsKey(t.id())).toList();
+            var matchedDetails = new HashMap<String,Title>();
+            if (!fallback.isEmpty()) {
+                try (var executor = java.util.concurrent.Executors.newFixedThreadPool(6)) {
+                    var tasks = fallback.stream().map(t -> executor.submit(() -> t.details() == null ? detail(t.id()) : t)).toList();
+                    for (var task : tasks) {
+                        var title = task.get();
+                        if (title.details() != null && selected.stream().anyMatch(g -> title.details().genres().contains(GENRES.get(g))))
+                            matchedDetails.put(title.id(), title);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Consulta interrompida.");
+                } catch (java.util.concurrent.ExecutionException e) {
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Não foi possível verificar os gêneros. Tente novamente.");
+                }
+            }
+            var filtered = new ArrayList<Title>();
+            for (var title : output) {
+                if (Boolean.TRUE.equals(matches.get(title.id()))) filtered.add(title);
+                else if (matchedDetails.containsKey(title.id())) filtered.add(matchedDetails.get(title.id()));
             }
             return filtered;
         }

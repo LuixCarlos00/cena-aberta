@@ -1,38 +1,25 @@
 "use client";
-import {readPreference,writePreference} from "../lib/browser-preferences";
+import {readPreference,writePreference,subscribePreferences} from "../lib/browser-preferences";
 import {useId,useState,useSyncExternalStore} from "react";
 
 const preferenceKey="cenaaberta.rating-control";
 type RatingMode = "stars" | "list";
-let fallbackMode:RatingMode="stars";
-function readMode() {
-  try{const saved=readPreference(preferenceKey);return saved==="list"?"list":"stars";}
-  catch{return fallbackMode;}
-}
-function subscribeMode(notify:()=>void) {
-  window.addEventListener("storage",notify);
-  window.addEventListener(preferenceKey,notify);
-  return ()=>{
-    window.removeEventListener("storage",notify);
-    window.removeEventListener(preferenceKey,notify);
-  };
-}
-function changeMode(mode:RatingMode) {
-  fallbackMode=mode;
-  try{writePreference(preferenceKey,mode);}catch{/* Keep the preference in this tab. */}
-  window.dispatchEvent(new Event(preferenceKey));
-}
+function readMode():RatingMode { return readPreference(preferenceKey)==="list"?"list":"stars"; }
+function changeMode(mode:RatingMode) { writePreference(preferenceKey,mode); }
 
 export function RatingPreference(){
-  const mode=useSyncExternalStore(subscribeMode,readMode,()=>"stars");
-  return <label>Formato de avaliação<select value={mode} onChange={event=>changeMode(event.target.value as RatingMode)}>
+  const mode=useSyncExternalStore(subscribePreferences,readMode,()=>"stars");
+  return <div className="rating-preference"><label>Formato de avaliação<select value={mode} onChange={event=>changeMode(event.target.value as RatingMode)}>
     <option value="stars">Estrelas</option><option value="list">Nota numérica</option>
-  </select></label>;
+  </select></label>
+    <div className="rating-example"><small>Exemplo</small><output aria-live="polite" aria-label="Exemplo de avaliação">
+      {mode==="stars"?<><span aria-hidden="true">★★★★☆</span><span className="sr-only">4 de 5 estrelas</span></>:"4 / 5"}
+    </output></div></div>;
 }
 
 export function StarRating({value,disabled,onChange}:{value:number|null;disabled:boolean;onChange:(value:number|null)=>void}) {
   const name=useId();
-  const mode=useSyncExternalStore(subscribeMode,readMode,()=>"stars");
+  const mode=useSyncExternalStore(subscribePreferences,readMode,()=>"stars");
   const [preview,setPreview]=useState<number|null>(null);
   const active=preview??value??0;
   return <fieldset className="star-rating" disabled={disabled}>

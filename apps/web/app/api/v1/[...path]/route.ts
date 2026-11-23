@@ -3,6 +3,12 @@ import {getServerSession} from "next-auth";
 import {authOptions} from "../../../../lib/auth";
 
 const routes = [
+  ["PUT", /^notifications\/rooms\/[a-f0-9-]{36}\/read$/,"social"],
+  ["GET", /^notifications$/,"social"],
+  ["GET", /^library-page$/,"social"],
+  ["GET", /^diary$/,"social"],
+  ["POST", /^backups$/,"backup"],
+  ["GET", /^backups(?:\/[a-f0-9]{48})?$/,"backup"],
   ["GET", /^feedback\/[a-f0-9-]{36}\/images\/[a-f0-9-]{36}$/,"social"],
   ["PUT", /^rooms\/[a-f0-9-]{36}\/reconsider\/[a-z0-9-]+$/,"social"],
   ["PUT", /^me\/visibility$/,"social"],
@@ -13,10 +19,10 @@ const routes = [
   ["PUT", /^rooms\/[a-f0-9-]{36}\/settings$/,"social"],
   ["GET", /^feedback(?:\/access)?$/,"social"],
   ["POST", /^feedback$/,"social"],
-  ["PUT", /^feedback\/[a-f0-9-]{36}$/,"social"],
+  ["PUT", /^feedback\/[a-f0-9-]{36}(?:\/thanks)?$/,"social"],
   ["GET", /^profiles$/,"social"],
   ["GET", /^rooms(?:\/[a-f0-9-]{36}(?:\/friends)?)?$/,"social"],
-  ["POST", /^rooms(?:\/[a-f0-9-]{36}\/(?:join|invite|start|more|choose\/[a-z0-9-]+))?$/,"social"],
+  ["POST", /^rooms(?:\/[a-f0-9-]{36}\/(?:join|leave|invite|start|more|choose\/[a-z0-9-]+))?$/,"social"],
   ["PUT", /^rooms\/[a-f0-9-]{36}\/votes\/[a-z0-9-]+$/,"social"],
   ["GET", /^titles\/[a-z0-9-]+\/seasons\/[0-9]+$/,"catalog"],
   ["GET", /^me\/episodes\/[a-z0-9-]+(?:\/[0-9]+)?$/,"social"],
@@ -25,10 +31,11 @@ const routes = [
   ["PUT", /^me\/ranking(?:\/[a-z0-9-]+)?$/,"social"],
   ["GET", /^title-batch$/,"catalog"],
   ["GET", /^titles(?:\/(?:demo-[a-z0-9-]+|tmdb-(?:movie|tv)-[0-9]+))?$/,"catalog"],
+  ["PUT", /^titles\/[a-z0-9-]+\/spoiler-vote$/,"social"],
   ["GET", /^(?:me|profiles\/[a-z0-9_]+|titles\/[a-z0-9-]+\/(?:reviews|community))$/,"social"],
-  ["PUT", /^me\/(?:profile|library\/[a-z0-9-]+\/(?:watched|interest|rating|review|rewatching|visibility)|(?:lists|viewings)\/[a-f0-9-]{36})$/,"social"],
-  ["POST", /^me\/(?:viewings|lists)$/,"social"],
-  ["DELETE", /^me\/(?:lists|viewings)\/[a-f0-9-]{36}$/,"social"],
+  ["PUT", /^me\/(?:profile|library\/[a-z0-9-]+\/(?:watched|interest|rating|review|rewatching|visibility)|viewings\/[a-f0-9-]{36})$/,"social"],
+  ["POST", /^me\/viewings$/,"social"],
+  ["DELETE", /^me\/viewings\/[a-f0-9-]{36}$/,"social"],
 ] as const;
 
 async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>}) {
@@ -48,7 +55,8 @@ async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>})
     if(request.headers.get("origin")!==origin) return Response.json({message:"Origem inválida."},{status:403});
   }
   const catalog=route[2]==="catalog";
-  const base=catalog ? process.env.CATALOG_URL ?? "http://127.0.0.1:8181" : process.env.SOCIAL_URL ?? "http://127.0.0.1:8182";
+  const backup=route[2]==="backup";
+  const base=backup ? "http://backup:8183" : catalog ? process.env.CATALOG_URL ?? "http://127.0.0.1:8181" : process.env.SOCIAL_URL ?? "http://127.0.0.1:8182";
   const secret=catalog ? process.env.CATALOG_INTERNAL_SECRET : process.env.SOCIAL_INTERNAL_SECRET;
   if(!secret) return Response.json({message:"Serviço indisponível."},{status:503});
   try {
@@ -63,8 +71,8 @@ async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>})
       const payload=new Uint8Array(bytes);let position=0;for(const chunk of chunks){payload.set(chunk,position);position+=chunk.byteLength;}body=new TextDecoder().decode(payload);
       headers["Content-Type"]="application/json";
     }
-    const result=await fetch(base+"/"+path+url.search,{method:request.method,headers,body,cache:"no-store",signal:AbortSignal.timeout(path.startsWith("rooms/")&&(path.endsWith("/start")||path.endsWith("/more"))?65000:path==="title-batch"?25000:6500)});
-    return new Response(result.body,{status:result.status,headers:{"Content-Type":result.headers.get("content-type")??"application/json","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+    const result=await fetch(base+"/"+path+(backup?"":url.search),{method:request.method,headers,body,cache:"no-store",signal:backup && path.startsWith("backups/") ? request.signal : AbortSignal.timeout(path.startsWith("rooms/")&&(path.endsWith("/start")||path.endsWith("/more"))?65000:path==="title-batch"?25000:6500)});
+    return new Response(result.body,{status:result.status,headers:{...(backup && result.headers.has("content-disposition")?{"Content-Disposition":result.headers.get("content-disposition")!}:{}),"Content-Type":result.headers.get("content-type")??"application/json","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
   } catch {
     return Response.json({message:"Serviço temporariamente indisponível. Tente novamente."},{status:503});
   }

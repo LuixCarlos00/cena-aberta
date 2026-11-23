@@ -43,9 +43,29 @@ public class Feedback {
  }
  @GetMapping Map<String,Object> inbox(@RequestHeader("X-Actor") String actor,@RequestParam(defaultValue="all") String status,@RequestParam(defaultValue="0") int offset){
   requireAdmin(actor);if(!Set.of("all","new","reviewing","resolved").contains(status)||offset<0||offset>100000)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-  var items=db.queryForList("select f.id,f.kind,f.description,f.page,f.app_version,f.status,f.created,p.username,p.name,p.avatar from feedback f join profile p on p.actor=f.actor where (?='all' or f.status=?) order by f.created desc,f.id limit 51 offset ?",status,status,offset);
-  for(var item:items){item.put("images",db.queryForList("select id from feedback_image where feedback_id=? order by created,id",String.class,item.get("id")));item.put("thanks",db.queryForList("select state from feedback_thanks where feedback_id=?",String.class,item.get("id")).stream().findFirst().orElse("none"));}
-  boolean more=items.size()>50;return Map.of("items",more?items.subList(0,50):items,"hasMore",more);
+  var rows=db.queryForList("""
+      select f.id,f.kind,f.description,f.page,f.app_version,f.status,f.created,p.username,p.name,p.avatar,
+             case when t.needs_review then 'uncertain' when t.claim_id is not null then 'sending'
+                  else coalesce(t.state,'none') end as thanks,t.attempts,t.queued_at,t.claim_id as claim
+      from feedback f join profile p on p.actor=f.actor
+      left join feedback_thanks t on t.feedback_id=f.id
+      where (?='all' or f.status=?) order by f.created desc,f.id limit 51 offset ?
+      """,status,status,offset);
+  boolean more=rows.size()>50;
+  var items=more?rows.subList(0,50):rows;
+  if(!items.isEmpty()){
+   var images=new LinkedHashMap<String,List<String>>();
+   for(var item:items){
+    var ids=new ArrayList<String>();
+    images.put((String)item.get("id"),ids);
+    item.put("images",ids);
+   }
+   String placeholders=String.join(",",Collections.nCopies(items.size(),"?"));
+   db.query("select feedback_id,id from feedback_image where feedback_id in ("+placeholders+") order by feedback_id,created,id",
+       (org.springframework.jdbc.core.RowCallbackHandler) row -> images.get(row.getString("feedback_id")).add(row.getString("id")),
+       images.keySet().toArray());
+  }
+  return Map.of("items",items,"hasMore",more);
  }
  @PutMapping("/{id}") @Transactional Map<String,String> change(@RequestHeader("X-Actor") String actor,@PathVariable String id,@RequestBody Change input){
   requireAdmin(actor);if(input.status()==null||!Set.of("new","reviewing","resolved").contains(input.status()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
@@ -57,6 +77,19 @@ public class Feedback {
   }
   if(db.update("update feedback set status=?,updated=CURRENT_TIMESTAMP where id=?",input.status(),id)!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
   return Map.of("status",input.status());
+ }
+ record Reconciliation(String claim,String decision){}
+ @PutMapping("/{id}/thanks") Map<String,String> reconcile(@RequestHeader("X-Actor") String actor,@PathVariable String id,@RequestBody Reconciliation input){
+  requireAdmin(actor);
+  boolean accepted="sent".equals(input.decision());
+  if(!accepted && !"retry".equals(input.decision()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+  int changed=db.update("""
+      update feedback_thanks set state=?,sent_at=case when ? then CURRENT_TIMESTAMP else null end,
+      next_attempt=CURRENT_TIMESTAMP,needs_review=false,claim_id=null
+      where feedback_id=? and claim_id=? and needs_review=true and state='pending'
+      """,accepted?"sent":"pending",accepted,id,input.claim());
+  if(changed!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Atualize a caixa para conferir o estado do envio.");
+  return Map.of("status",accepted?"sent":"pending");
  }
  private void lockImages(){db.queryForList("select id from feedback_image_quota where id=1 for update");}
  private void evictImages(long incoming){

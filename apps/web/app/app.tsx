@@ -1,10 +1,12 @@
 "use client";
+import {NotificationBell} from "./notification-bell";
 import {useCallback,useEffect,useRef,useState,type ReactNode} from "react";
 import {signIn,signOut} from "next-auth/react";
 import {useRouter} from "next/navigation";
 import {EpisodeRatings} from "./episode-ratings";
 import {CardTitle} from "./card-title";
 import {ThemePicker} from "./theme-picker";
+import {CatalogSearch} from "./catalog-search";
 import {CatalogDrawer} from "./catalog-drawer";
 import {FilmRanking,rankingCategories} from "./film-ranking";
 import type {Release} from "../lib/releases";
@@ -14,18 +16,18 @@ import {StarRating} from "./star-rating";
 import {ProfileFriends} from "./profile-friends";
 import {ProfileFriend} from "./profile-friend";
 import {ReviewEditor} from "./review-editor";
-import {IconAction} from "./action-icons";
+import {Icon as ActionIcon,IconAction} from "./action-icons";
 import {ProfileAvatar,ProfileForm,type Profile,type ProfileInput} from "./profile-form";
 
 type TitleDetails={genres:string[];runtime:number|null;seasons:number|null;episodes:number|null;directors:string[];creators:string[];cast:string[]};
 type Title={id:string;format:string;anime:boolean;name:string;original:string;year:string;summary:string;poster:string|null;details?:TitleDetails|null};
-type Entry={title:string;watched:boolean;interest:boolean;rewatching:boolean;rating:number|null;review:string|null;spoiler:boolean;version:number;hidden?:boolean;evaluation_public?:boolean};
+type Entry={title:string;watched:boolean;interest:boolean;rewatching:boolean;rating:number|null;review:string|null;spoiler:boolean;version:number;hidden?:boolean;evaluation_public?:boolean;viewer_watched?:boolean;my_vote?:boolean|null};
 type Viewing={id:string;title:string;watched_on:string|null;watched_at:string|null;rewatch:boolean};
 type PendingViewing={title:string;name:string;watchedAt:string};
 const profileSections = ["watchlist", "ranking", "watched", "diary"] as const;
 type Section = typeof profileSections[number];
-type Dashboard={visibility?:Record<Section,boolean>;ranking?:{title:string;tier:number}[];needsProfile?:boolean;profile?:Profile;library?:Entry[];viewings?:Viewing[]};
-type Review={username:string;name:string;avatar?:string;rating:number|null;review:string;spoiler:boolean};
+type Dashboard={visibility?:Record<Section,boolean>;ranking?:{title:string;tier:number}[];needsProfile?:boolean;profile?:Profile;library?:Entry[];diaryHasMore?:boolean;viewings?:Viewing[]};
+type Review={username:string;name:string;avatar?:string;rating:number|null;review:string;spoiler:boolean;version:number;my_vote:boolean|null};
 type SeasonAverage={season:number;average:number};
 type Community={seasons?:SeasonAverage[];average:number|null;rating_count:number;episode_rating_count?:number;reviews:Review[]};
 const demoEvaluations=[
@@ -67,6 +69,93 @@ async function api<T>(path:string,method="GET",body?:unknown,key?:string):Promis
   if(!response.ok) throw new Error(json?.message || "Não foi possível concluir a ação.");
   return json;
 }
+type DiaryResult={items:Viewing[];hasMore:boolean};
+
+function LibraryPage({section,username,dashboard,render}:{
+  section:"watchlist"|"watched";username?:string;dashboard:Dashboard;render:(item:Entry,title?:Title)=>ReactNode;
+}){
+  const [page,setPage]=useState(1),[attempt,retry]=useState(0);
+  const [result,setResult]=useState<{page:number;dashboard:Dashboard;items:Entry[];pages:number;titles:Map<string,Title>}|null>(null);
+  const [error,setError]=useState("");
+  const strip=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    let active=true;
+    setError("");
+    const params=new URLSearchParams({section,page:String(page)});
+    if(username)params.set("username",username);
+    (async()=>{
+      const {items,pages}=await api<{items:Entry[];pages:number}>("library-page?"+params);
+      if(!active)return;
+      if(!items.length&&page>1){setPage(page-1);return;}
+      const titles=items.length?await api<Title[]>("title-batch?ids="+encodeURIComponent(items.map(i=>i.title).join(","))):[];
+      if(active)setResult({page,dashboard,items,pages,titles:new Map(titles.map(t=>[t.id,t]))});
+    })().catch(e=>{if(active)setError(e.message);});
+    return ()=>{active=false;};
+  },[section,username,dashboard,page,attempt]);
+  useEffect(()=>{if(strip.current)strip.current.scrollLeft=0;},[page]);
+  if(error)return <p role="alert">{error} <button onClick={()=>retry(n=>n+1)}>Tentar novamente</button></p>;
+  if(!result||result.page!==page||result.dashboard!==dashboard)return <p role="status">Carregando obras…</p>;
+  return <><div ref={strip} className="grid profile-card-strip">{result.items.map(item=>render(item,result.titles.get(item.title)))}</div>
+    {!result.items.length&&<p className="muted">{section==="watchlist"?"Nenhuma obra salva.":"Nenhuma avaliação ou obra vista."}</p>}
+    {result.pages>1&&<nav className="row pagination" aria-label={"Páginas de "+(section==="watched"?"Já vistos":"Vou ver")}>
+      <button disabled={page===1} onClick={()=>setPage(1)} aria-label="Primeira página">«</button>
+      <button disabled={page===1} onClick={()=>setPage(page-1)}>Anterior</button>
+      <span aria-live="polite">{page} de {result.pages}</span>
+      <button disabled={page===result.pages} onClick={()=>setPage(page+1)}>Próxima</button>
+      <button disabled={page===result.pages} onClick={()=>setPage(result.pages)} aria-label="Última página">»</button>
+    </nav>}</>;
+}
+
+function DiaryDialog({dashboard,username,title,name,onClose,renderSession,visibility,message}:{
+  dashboard:Dashboard;username?:string;title:string;name:string;onClose:()=>void;
+  renderSession:(item:Viewing)=>ReactNode;visibility:ReactNode;message:string;
+}){
+  const dialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{
+    const element=dialog.current;
+    element?.showModal();
+    return ()=>element?.close();
+  },[]);
+  const [page,setPage]=useState(1);
+  const [attempt,retry]=useState(0);
+  const [result,setResult]=useState<{dashboard:Dashboard;page:number;data:DiaryResult}|null>(null);
+  const [failure,setFailure]=useState("");
+  useEffect(()=>{
+    let active=true;
+    setFailure("");
+    const params=new URLSearchParams({page:String(page),title});
+    if(username)params.set("username",username);
+    (async()=>{
+      const data=await api<DiaryResult>("diary?"+params);
+      if(!active)return;
+      if(!data.items.length&&page>1){setPage(page-1);return;}
+      setResult({dashboard,page,data});
+    })().catch(error=>{if(active)setFailure(error.message);});
+    return ()=>{active=false;};
+  },[dashboard,page,username,title,attempt]);
+  const data=result?.page===page&&result.dashboard===dashboard?result.data:null;
+  function navigate(next:number){setFailure("");setPage(next);}
+  return <dialog ref={dialog} className="session-dialog diary-dialog" aria-labelledby="diary-heading" onCancel={event=>{event.preventDefault();onClose();}}>
+    <header>
+      <h2 id="diary-heading">Diário · {name}</h2>
+      <div className="diary-toolbar">
+        {visibility&&<span className="diary-visibility">Visibilidade do Diário {visibility}</span>}
+        <button autoFocus onClick={onClose}>Fechar</button>
+      </div>
+    </header>
+    {message&&<p role="status">{message}</p>}
+    {data?<><ul className="diary-sessions">{data.items.map(renderSession)}</ul>
+      {!data.items.length&&<p className="muted">Nenhuma sessão registrada.</p>}</>:
+      failure?<div role="alert">{failure} <button onClick={()=>{setFailure("");retry(n=>n+1);}}>Tentar novamente</button></div>:
+      <p role="status">Carregando sessões…</p>}
+    {(page>1||data?.hasMore)&&<nav className="row diary-pagination" aria-label="Páginas do Diário">
+      <button disabled={page===1} onClick={()=>navigate(page-1)}>Anterior</button>
+      <span aria-live="polite">Página {page}</span>
+      <button disabled={!data?.hasMore} onClick={()=>navigate(page+1)}>Próxima</button>
+    </nav>}
+  </dialog>;
+}
+
 function Poster({title,large=false}:{title:Title;large?:boolean}) {
   const [failedPoster,setFailedPoster]=useState<string|null>(null);
   const variant=Array.from(title.id).reduce((sum,c)=>sum+c.charCodeAt(0),0)%6;
@@ -92,10 +181,52 @@ function Spoiler({hidden,children}:{hidden:boolean;children:ReactNode}) {
   const [open,setOpen]=useState(false);
   return <div className="review-text">{hidden&&!open?<button className="small" onClick={()=>setOpen(true)}>Revelar spoiler</button>:children}</div>;
 }
+type SpoilerState={spoiler:boolean;my_vote?:boolean|null};
+function ReviewReader({name,titleId,author,own,watched,text,version,initial}:{
+  name?:string;titleId:string;author:string;own:boolean;watched:boolean;text:string;version:number;initial:SpoilerState
+}) {
+  const dialog=useRef<HTMLDialogElement>(null);
+  const [reading,setReading]=useState(false);
+  const [state,setState]=useState(initial);
+  const [saving,setSaving]=useState(false),[error,setError]=useState("");
+  async function vote(value:boolean) {
+    if(saving||state.my_vote===value)return;
+    setSaving(true);setError("");
+    try {
+      setState(await api<SpoilerState>("titles/"+titleId+"/spoiler-vote","PUT",{username:author,version,containsSpoiler:value}));
+    } catch(e){setError((e as Error).message);} finally{setSaving(false);}
+  }
+  const body=<>
+    <Spoiler hidden={!own&&!watched&&state.spoiler}>{text}</Spoiler>
+    {!own&&<div className="spoiler-votes" role="group" aria-label="Votar sobre spoiler na resenha">
+      {[true,false].map(value=>{
+        const label=value?"Contém spoiler":"Não contém spoiler";
+        return <button type="button" key={String(value)} aria-label={label} title={label}
+          aria-pressed={state.my_vote===value} disabled={saving} onClick={()=>void vote(value)}>
+          <ActionIcon kind="spoiler" active={value}/>
+        </button>;
+      })}
+    </div>}
+    {error&&<p className="message error" role="alert">{error}</p>}
+  </>;
+  if(!name)return body;
+  return <>
+    <button type="button" aria-haspopup="dialog" aria-label={"Abrir resenha de "+name} title="Abrir resenha" onClick={()=>{
+      setReading(true);
+      dialog.current?.showModal();
+    }}><UiIcon name="review"/></button>
+    <dialog ref={dialog} className="session-dialog profile-review-dialog" aria-label={"Resenha de "+name} onClose={()=>setReading(false)}>
+      <h2>Resenha de {name}</h2>
+      {reading&&body}
+      <form method="dialog" className="row"><button>Fechar</button></form>
+    </dialog>
+  </>;
+}
 export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTitle,initialTab="all",profileUser,showCommunityDemo=false}:{releases?:Release[];authenticated:boolean;inviteLogin:boolean;emailAccounts:boolean;pageTitle?:string;initialTab?:string;profileUser?:string;showCommunityDemo?:boolean}) {
   const router=useRouter();
   const [tab,setTab]=useState(initialTab),[query,setQuery]=useState(""),[search,setSearch]=useState(""),[page,setPage]=useState(1);
   const [titles,setTitles]=useState<Title[]>([]),[known,setKnown]=useState<Record<string,Title>>({}),[more,setMore]=useState(false),[demo,setDemo]=useState(false);
+  const [diaryTitle,setDiaryTitle]=useState<{id:string;name:string}|null>(null);
   const [data,setData]=useState<Dashboard|null>(null),[other,setOther]=useState<Dashboard|null>(null);
   const [title,setTitle]=useState<Title|null>(null),[community,setCommunity]=useState<Community|null>(null);
   const [error,setError]=useState(""),[notice,setNotice]=useState(""),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);
@@ -119,7 +250,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   },[pendingViewing]);
   const label=(id:string)=>known[id]?.name??labels[id]??"Obra do catálogo";
   const fail=(e:unknown)=>setError(e instanceof Error?e.message:"Falha inesperada.");
-  const refresh=useCallback(async()=>{const value=await api<Dashboard>("me");setData(value);return value;},[]);
+  const refresh=useCallback(async()=>{const value=await api<Dashboard>(pageTitle?"me?title="+encodeURIComponent(pageTitle):tab==="ranking"?"me":"me?summary=true");setData(value);return value;},[pageTitle,tab==="ranking"]);
   useEffect(()=>{if(authenticated) refresh().catch(fail);},[authenticated,refresh]);
   useEffect(()=>{
     if(!authenticated || (tab==="profile"||tab==="ranking") || pageTitle) return;
@@ -179,7 +310,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   }
   useEffect(()=>{setTab(initialTab);},[initialTab]);
   useEffect(()=>{if(pageTitle)void loadTitle(pageTitle);},[pageTitle,data?.profile?.username]);
-  useEffect(()=>{if(profileUser&&data?.profile)api<Dashboard>("profiles?username="+encodeURIComponent(profileUser)).then(setOther).catch(fail);},[profileUser,data?.profile?.username]);
+  useEffect(()=>{if(profileUser&&data?.profile)api<Dashboard>("profiles?summary=true&username="+encodeURIComponent(profileUser)).then(setOther).catch(fail);},[profileUser,data?.profile?.username]);
   useEffect(()=>{
     if(!data?.profile||!pageTitle)return;
     let current=true;
@@ -246,7 +377,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
     const visible=section==="all"?profileSections.every(key=>current?.visibility?.[key]):!!current?.visibility?.[section];
     const mixed=section==="all"&&!visible&&profileSections.some(key=>current?.visibility?.[key]);
     const hint=section==="all"?(mixed?"Algumas seções visíveis para visitantes":visible?"Todas as seções visíveis para visitantes":"Todas as seções ocultas para visitantes"):label.charAt(0).toUpperCase()+label.slice(1)+": "+(section==="watched"?(visible?"visíveis para visitantes":"ocultos para visitantes"):(visible?"visível para visitantes":"oculto para visitantes"));
-    return <button type="button" className="visibility-toggle" disabled={busy} aria-label={hint} title={hint} aria-pressed={mixed?"mixed":visible} onClick={()=>void action(()=>api("me/visibility","PUT",{section,visible:!visible}),visible?"Seção oculta para visitantes.":"Seção visível para visitantes.")}><UiIcon name={visible?"eye":"hidden"}/></button>;
+    return <button type="button" className="visibility-toggle" disabled={busy} aria-label={hint} title={hint} aria-pressed={mixed?"mixed":visible} onClick={()=>void action(()=>api("me/visibility","PUT",{section,visible:!visible}),section==="diary"?"":visible?"Seção oculta para visitantes.":"Seção visível para visitantes.")}><UiIcon name={visible?"eye":"hidden"}/></button>;
   }
   function showSection(section:Section){return owned||!!current?.visibility?.[section];}
   function saveProfile(input:ProfileInput) {
@@ -262,15 +393,16 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
   }
   async function visit(username:string) {
     if(pageTitle){router.push("/?usuario="+encodeURIComponent(username));return;}
-    try {const person=await api<Dashboard>("profiles?username="+encodeURIComponent(username));changeTab("profile");setOther(person);}catch(e){fail(e);}
+    try {const person=await api<Dashboard>("profiles?summary=true&username="+encodeURIComponent(username));changeTab("profile");setOther(person);}catch(e){fail(e);}
   }
   return <>
     <header className="top"><div className="wrap nav">
       <button className="logo" onClick={()=>changeTab("all")}><span className="mark">◈</span> cena<span>aberta</span></button>
-      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={(tab===id?"nav-active ":"")+"catalog-desktop-category"} onClick={()=>changeTab(id)}>{name}</button>)}<CatalogDrawer categories={categories.map(([id,name])=>[id,id==="all"?"Todos":name])} current={tab} onSelect={changeTab}/><a className="room-nav-link" href="/salas">Escolher juntos</a></nav>}
+      {authenticated&&<nav aria-label="Catálogo">{categories.map(([id,name])=><button key={id} className={(tab===id?"nav-active ":"")+"catalog-desktop-category"} onClick={()=>changeTab(id)}>{name}</button>)}<CatalogDrawer categories={categories.map(([id,name])=>[id,id==="all"?"Todos":name])} current={tab} onSelect={changeTab}/><a className="room-nav-link" href="/salas"><UiIcon name="card"/>Sélete</a></nav>}
       <div className={authenticated?"account account-signed-in":"account"}>
         {authenticated?<>
-          <button type="button" className="nav-profile" aria-current={tab==="profile"&&!pageTitle&&owned?"page":undefined} onClick={()=>changeTab("profile")}>
+          <NotificationBell/>
+          <button type="button" className="nav-profile" aria-label="Meu perfil" title="Meu perfil" aria-current={tab==="profile"&&!pageTitle&&owned?"page":undefined} onClick={()=>changeTab("profile")}>
             {data?.profile?<ProfileAvatar name={data.profile.name} avatar={data.profile.avatar}/>:(
               <span className="profile-avatar profile-initial" aria-hidden="true">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -279,7 +411,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
                 </svg>
               </span>
             )}
-            Meu perfil
+            <span className="nav-profile-label">Meu perfil</span>
           </button>
           <button type="button" className="nav-signout" aria-label="Sair" title="Sair da conta" onClick={()=>signOut({callbackUrl:"/"})}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -301,8 +433,8 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
         {data?.needsProfile&&<section className="panel"><h2>Crie seu perfil</h2><ProfileForm busy={busy} onSave={saveProfile}/></section>}
         {!pageTitle&&(tab==="ranking"?(data?.profile&&<FilmRanking visibility={sectionVisibility("ranking","meu ranking")} films={(data.library??[]).filter(item=>item.watched&&known[item.title]).map(item=>known[item.title])}/>):tab!=="profile"?<>
           <section className="hero"><div className="hero-copy"><p className="eyebrow">FILMES · SÉRIES · ANIMES</p><h1>Qual é a<br/><em>próxima sessão?</em></h1>
-          <form className="search" onSubmit={event=>{event.preventDefault();setSearch(query.trim());setPage(1);}}>
-            <input type="search" aria-label="Buscar por título" placeholder="Buscar por título…" maxLength={100} value={query} onChange={event=>{setQuery(event.target.value);if(!event.target.value){setSearch("");setPage(1);}}}/><button className="primary">Buscar</button></form></div><div className="reel" aria-hidden="true"><i/><i/><i/></div></section>
+          <CatalogSearch key={tab} category={tab} query={query} onChange={value=>{setQuery(value);if(!value){setSearch("");setPage(1);}}}
+            onSearch={()=>{setSearch(query.trim());setPage(1);}} onOpen={open}/></div><div className="reel" aria-hidden="true"><i/><i/><i/></div></section>
           <section aria-busy={loading}><div className="section-heading"><h2>{search?"Resultados da busca":categories.find(([id])=>id===tab)?.[1]}</h2>{demo&&<span className="muted">Catálogo fictício</span>}</div>
           {loading?<p>Carregando catálogo…</p>:titles.length?<div className="grid">{titles.map(item=><article className="catalog-card" key={item.id}><button className="card" onClick={()=>open(item.id)}><Poster title={item}/><CardTitle>{item.name}</CardTitle><small>{item.year} · {item.anime?"Anime":item.format==="movie"?"Filme":"Série"}</small></button></article>)}</div>:<p>Nenhuma obra nesta página.</p>}
           {(page>1||more)&&<div className="row pagination"><button disabled={page===1} onClick={()=>setPage(page-1)}>Anterior</button><span>Página {page}</span><button disabled={!more} onClick={()=>setPage(page+1)}>Próxima</button></div>}</section>
@@ -313,22 +445,21 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
           {!owned&&current?.profile?.bio&&<p>{current.profile.bio}</p>}
           {current?.profile&&<>
           {!owned&&<ProfileFriends key={current.profile.username} username={current.profile.username}/>}
-          {showSection("watchlist")&&<section className="panel"><div className="section-heading"><h2>Vou ver</h2>{sectionVisibility("watchlist","Vou ver")}</div><div className="grid profile-card-strip">{current.library?.filter(item=>item.interest).map(item=>{
-            const saved=known[item.title];
+          {showSection("watchlist")&&<section className="panel"><div className="section-heading"><h2>Vou ver</h2>{sectionVisibility("watchlist","Vou ver")}</div><LibraryPage key={current.profile.username} section="watchlist" dashboard={current} username={owned?undefined:current.profile.username} render={(item,saved)=>{
             return <button key={item.title} className="card" onClick={()=>open(item.title)}>
               {saved?<Poster title={saved}/>:<div className="poster art-0"><span>{label(item.title)}</span></div>}
-              <CardTitle>{label(item.title)}</CardTitle>
+              <CardTitle>{(saved?.name??label(item.title))}</CardTitle>
               {saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
             </button>;
-          })}</div>{!current.library?.some(item=>item.interest)&&<p className="muted">Nenhuma obra salva.</p>}</section>}
-          {showSection("watched")&&<section className="panel"><div className="section-heading"><h2>Já vistos e avaliações</h2>{sectionVisibility("watched","já vistos")}</div><div className="grid profile-card-strip">{current.library?.filter(item=>item.watched||item.rating||item.review).map(item=>{
-            const saved=known[item.title];
+          }}/></section>}
+          {showSection("watched")&&<section className="panel"><div className="section-heading"><h2>Já vistos e avaliações</h2>{sectionVisibility("watched","já vistos")}</div><LibraryPage key={current.profile.username} section="watched" dashboard={current} username={owned?undefined:current.profile.username} render={(item,saved)=>{
             return <article className="catalog-card" key={item.title}><button className="card" onClick={()=>open(item.title)}>
               {saved?<Poster title={saved}/>:<div className="poster art-0"><span>{label(item.title)}</span></div>}
-              <CardTitle>{label(item.title)}</CardTitle>{saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
-            </button>{item.rewatching&&<small>Vi novamente</small>}{saved?.format==="movie"&&item.rating&&<span>★ {displayRating(item.rating)}</span>}{item.review&&<Spoiler hidden={item.spoiler}>{item.review}</Spoiler>}</article>;
-          })}</div>{!current.library?.some(item=>item.watched||item.rating||item.review)&&<p className="muted">Nenhuma avaliação ou obra vista.</p>}</section>}
-          {showSection("diary")&&<section className="panel"><div className="section-heading"><h2>Diário</h2>{sectionVisibility("diary","diário")}</div><div className="grid profile-card-strip diary-cards">{current.viewings?.map(item=><div className="catalog-card" key={item.id}>{savedCard(item.title)}<span>{item.watched_on?.split("-").reverse().join("/")??"Data não informada"}{item.watched_at&&<> às <time dateTime={item.watched_at}>{sessionTime.format(new Date(item.watched_at))}</time></>}{item.rewatch?" · Revisto":""}</span>{owned&&<div className="diary-actions"><button type="button" aria-label={"Editar sessão de "+label(item.title)} title="Editar sessão" disabled={busy} onClick={()=>{setError("");setViewing(item);}}><UiIcon name="edit"/></button><button type="button" aria-label={"Excluir sessão de "+label(item.title)} title="Excluir sessão" disabled={busy} onClick={()=>{if(confirm("Excluir a sessão de "+label(item.title)+" do Diário?"))void action(()=>api("me/viewings/"+item.id,"DELETE"),"Registro excluído.");}}><UiIcon name="trash"/></button></div>}</div>)}</div>{!current.viewings?.length&&<p className="muted">Nenhuma sessão registrada.</p>}</section>}
+              <CardTitle>{(saved?.name??label(item.title))}</CardTitle>{saved&&<small>{saved.year} · {saved.anime?"Anime":saved.format==="movie"?"Filme":"Série"}</small>}
+            </button><div className="diary-rating">{saved?.format==="movie"&&item.rating&&<span>★ {displayRating(item.rating)}</span>}
+              <div className="profile-card-actions">{item.review&&<ReviewReader key={[item.version,item.spoiler,item.my_vote].join("-")} name={saved?.name??label(item.title)} titleId={item.title} author={current.profile!.username} own={owned} watched={!!item.viewer_watched} text={item.review} version={item.version} initial={item}/>}{showSection("diary")&&<button type="button" aria-haspopup="dialog" aria-label={"Abrir Diário de "+(saved?.name??label(item.title))} title="Abrir Diário da obra" onClick={()=>{setError("");setNotice("");setDiaryTitle({id:item.title,name:saved?.name??label(item.title)});}}><UiIcon name="diary"/></button>}</div></div></article>;
+          }}/></section>}
+          {diaryTitle&&showSection("diary")&&<DiaryDialog key={diaryTitle.id} title={diaryTitle.id} name={diaryTitle.name} dashboard={current} username={owned?undefined:current.profile?.username} onClose={()=>setDiaryTitle(null)} visibility={sectionVisibility("diary","diário")} message={viewing?"":error||notice} renderSession={item=><li key={item.id}><span>{item.watched_on?.split("-").reverse().join("/")??"Data não informada"}{item.watched_at&&<> às <time dateTime={item.watched_at}>{sessionTime.format(new Date(item.watched_at))}</time></>}{item.rewatch?" · Revisto":""}</span>{owned&&<div className="diary-actions"><button type="button" aria-label={"Editar sessão de "+diaryTitle.name} title="Editar sessão" disabled={busy} onClick={()=>{setError("");setViewing(item);}}><UiIcon name="edit"/></button><button type="button" aria-label={"Excluir sessão de "+diaryTitle.name} title="Excluir sessão" disabled={busy} onClick={()=>{if(confirm("Excluir a sessão de "+diaryTitle.name+" do Diário?"))void action(()=>api("me/viewings/"+item.id,"DELETE"),"Registro excluído.");}}><UiIcon name="trash"/></button></div>}</li>}/>}
           {!owned&&showSection("ranking")&&<section className="panel"><h2><UiIcon name="crown"/> Ranking</h2>{["movie","tv","anime"].map(kind=><div key={kind}><h3>{kind==="movie"?"Filmes":kind==="tv"?"Séries":"Animes"}</h3>{rankingCategories.map((category,tier)=><div className={"public-ranking-tier rank-tier-"+tier} key={tier}><h4>{category}</h4><div className="public-ranking-cards">{current.ranking?.filter(item=>item.tier===tier&&(known[item.title]?.anime?"anime":known[item.title]?.format)===kind).map(item=><div className="catalog-card" key={item.title}>{savedCard(item.title)}</div>)}</div></div>)}</div>)}</section>}
           {!owned&&!profileSections.some(key=>current.visibility?.[key])&&<p className="muted">As seções deste perfil estão privadas.</p>}</>}
         </section>)}
@@ -352,14 +483,14 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
         <h3 id="community-heading">Comunidade</h3>
         <CommunityScore average={community.average} count={community.rating_count} episodic={title.format==="tv"}/>
         {title.format==="tv"&&<p className="muted">Média das temporadas avaliadas · {community.episode_rating_count??0} notas registradas</p>}
-        <h4>Comentários</h4>
-        {!community.reviews.length&&<p className="muted">Nenhum comentário publicado.</p>}
+        <h4>Resenhas</h4>
+        {!community.reviews.length&&<p className="muted">Nenhuma resenha publicada.</p>}
         {community.reviews.map(review=><article className="record" key={review.username}>
           <div className="row review-author"><button className="review-author-link" disabled={review.username===data?.profile?.username} onClick={()=>visit(review.username)}>
             <ProfileAvatar name={review.name} avatar={review.avatar}/>{review.name}
           </button>
           {title.format==="movie"&&review.rating!==null&&<span className="review-score">★ {displayRating(review.rating)}</span>}</div>
-          <Spoiler hidden={review.spoiler}>{review.review}</Spoiler>
+          <ReviewReader key={[title.id,review.version,review.spoiler,review.my_vote].join("-")} titleId={title.id} author={review.username} own={review.username===data?.profile?.username} watched={entry.watched} text={review.review} version={review.version} initial={review}/>
         </article>)}
         {showCommunityDemo&&<section className="community" aria-label="Comunidade de demonstração">
           <h4>Comunidade de demonstração</h4>
@@ -374,7 +505,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
           </>:<CommunityScore average={demoSum/demoEvaluations.length/2} count={demoEvaluations.length} demo/>}
           {title.format!=="tv"&&demoEvaluations.filter(item=>item.review).map(item=><article className="record" key={item.name}>
             <div className="row review-author"><ProfileAvatar name={item.name}/><CardTitle>{item.name}</CardTitle><span className="review-score">★ {displayRating(item.rating)}</span></div>
-            <Spoiler hidden={item.spoiler}>{item.review}</Spoiler>
+            <Spoiler hidden={!entry.watched&&item.spoiler}>{item.review}</Spoiler>
           </article>)}
         </section>}
       </section>}
@@ -394,7 +525,7 @@ export function App({releases=[],authenticated,inviteLogin,emailAccounts,pageTit
           </div>
         </>}
       </dialog>
-      <dialog className="session-dialog" ref={viewingDialog} aria-labelledby="edit-viewing-heading" onCancel={event=>{event.preventDefault();if(!busy){setViewing(null);setError("");}}}>{viewing&&<><h2 id="edit-viewing-heading">Editar sessão</h2><p>{label(viewing.title)}</p>{error&&<p role="alert" className="message error">{error}</p>}<form key={viewing.id} className="form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);const body={title:viewing.title,date:form.get("date")||null,rewatch:form.has("rewatch")};void action(async()=>{await api("me/viewings/"+viewing.id,"PUT",body);setViewing(null);},"Sessão salva.");}}><label>Data (opcional)<input autoFocus disabled={busy} name="date" type="date" defaultValue={viewing.watched_on??""}/></label><label className="check"><input disabled={busy} name="rewatch" type="checkbox" defaultChecked={viewing.rewatch}/>Já tinha visto antes</label><div className="row"><button className="primary" disabled={busy}>Salvar sessão</button><button type="button" disabled={busy} onClick={()=>{setViewing(null);setError("");}}>Cancelar</button></div></form></>}</dialog>
+      <dialog className="session-dialog" ref={viewingDialog} aria-labelledby="edit-viewing-heading" onCancel={event=>{event.preventDefault();if(!busy){setViewing(null);setError("");}}}>{viewing&&<><h2 id="edit-viewing-heading">Editar sessão</h2><p>{diaryTitle?.id===viewing.title?diaryTitle.name:label(viewing.title)}</p>{error&&<p role="alert" className="message error">{error}</p>}<form key={viewing.id} className="form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);const body={title:viewing.title,date:form.get("date")||null,rewatch:form.has("rewatch")};void action(async()=>{await api("me/viewings/"+viewing.id,"PUT",body);setViewing(null);},"Sessão salva.");}}><label>Data (opcional)<input autoFocus disabled={busy} name="date" type="date" defaultValue={viewing.watched_on??""}/></label><label className="check"><input disabled={busy} name="rewatch" type="checkbox" defaultChecked={viewing.rewatch}/>Já tinha visto antes</label><div className="row"><button className="primary" disabled={busy}>Salvar sessão</button><button type="button" disabled={busy} onClick={()=>{setViewing(null);setError("");}}>Cancelar</button></div></form></>}</dialog>
       {credits&&<section className="panel"><h2>Sobre o alpha</h2><p>Cena Aberta é um diário audiovisual em desenvolvimento. O catálogo de demonstração usa obras fictícias.</p><p><a href="https://www.themoviedb.org/"><img src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" width={88} alt="The Movie Database"/></a></p><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p><p>A visibilidade das seções é definida por você no perfil. Novas notas e resenhas são públicas por padrão. Você pode tornar cada avaliação privada pelo controle de visibilidade. Somente as seções habilitadas ficam visíveis para quem visita seu perfil.</p></section>}
     </main><footer className="wrap footer"><span>Cena Aberta · Alpha</span><button onClick={()=>setCredits(!credits)}>Sobre, créditos e privacidade</button></footer>
   </>;

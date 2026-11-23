@@ -60,7 +60,6 @@ public class Social {
 
                           @JsonInclude(JsonInclude.Include.NON_NULL) OffsetDateTime watchedAt) {}
 
-    public record CollectionChange(String name,String description,List<String> items,Integer version) {}
 
     private final JdbcTemplate db;
 
@@ -287,7 +286,7 @@ public class Social {
 
 
 
-    @GetMapping("/me") Map<String,Object> me(@RequestHeader("X-Actor") String actor) {
+    @GetMapping("/me") Map<String,Object> me(@RequestHeader("X-Actor") String actor, @RequestParam(defaultValue="false") boolean summary, @RequestParam(required=false) String title) {
 
         validateActor(actor);
 
@@ -298,7 +297,8 @@ public class Social {
         if(!Boolean.TRUE.equals(profiles.getFirst().get("active")) && db.queryForObject("select count(*) from email_account where actor=? and state='paused'",Integer.class,actor)>0)return Map.of("paused",true);
         checkActive(profiles.getFirst());
 
-        return dashboard(profiles.getFirst(),actor,true);
+        if (title != null) validateTitle(title);
+        return dashboard(profiles.getFirst(),actor,true,summary,title);
 
     }
 
@@ -335,26 +335,26 @@ public class Social {
 
         } catch (DuplicateKeyException duplicate) { fail(HttpStatus.CONFLICT,"Nome de usuário já cadastrado."); }
 
-        return me(actor);
+        return me(actor,false,null);
 
     }
 
 
 
     @GetMapping("/profiles")
-    Map<String,Object> profileByName(@RequestHeader("X-Actor") String actor,@RequestParam String username) {
-        return publicProfile(actor,username);
+    Map<String,Object> profileByName(@RequestHeader("X-Actor") String actor,@RequestParam String username, @RequestParam(defaultValue="false") boolean summary) {
+        return publicProfile(actor,username,summary);
     }
 
     @GetMapping("/profiles/{username}")
 
-    Map<String,Object> publicProfile(@RequestHeader("X-Actor") String actor,@PathVariable String username) {
+    Map<String,Object> publicProfile(@RequestHeader("X-Actor") String actor,@PathVariable String username, @RequestParam(defaultValue="false") boolean summary) {
 
         active(actor);
 
         var target=one("select actor,username,name,bio,avatar from profile where username=? and active=true",ProfileFields.username(username));
 
-        return dashboard(target,(String)target.get("actor"),false);
+        return dashboard(target,(String)target.get("actor"),false,summary,null);
 
     }
 
@@ -367,15 +367,38 @@ public class Social {
         active(actor);
 
         validateTitle(id);
-        return publicReviews(id,episodic(id));
+        return publicReviews(actor,id,episodic(id));
     }
 
-    private List<Map<String,Object>> publicReviews(String id,boolean series) {
-        return db.queryForList("select p.username,p.name,p.avatar,case when ? then null else l.rating end as rating,l.review,l.spoiler from library l join profile p on p.actor=l.actor where l.title=? and l.review is not null and l.evaluation_public=true and l.hidden=false and p.active=true order by p.username limit 50",series,id);
+    private static final String EFFECTIVE_SPOILER = """
+        (l.spoiler or (select coalesce(sum(case when v.contains_spoiler then 1 else -1 end),0)
+        from review_spoiler_vote v where v.author=l.actor and v.title=l.title) >= 2)
+        """;
+    private static final String MY_SPOILER_VOTE = """
+        (select v.contains_spoiler from review_spoiler_vote v where v.author=l.actor and v.title=l.title and v.voter=?)
+        """;
 
+    private List<Map<String,Object>> publicReviews(String actor,String id,boolean series) {
+        return db.queryForList("select p.username,p.name,p.avatar,case when ? then null else l.rating end as rating,"
+            + "l.review,l.version,"+EFFECTIVE_SPOILER+" as spoiler,"+MY_SPOILER_VOTE+" as my_vote "
+            + "from library l join profile p on p.actor=l.actor where l.title=? and l.review is not null "
+            + "and l.evaluation_public=true and l.hidden=false and p.active=true order by p.username limit 50",series,actor,id);
     }
 
-
+    record SpoilerVote(String username, Integer version, Boolean containsSpoiler) {}
+    @PutMapping("/titles/{id}/spoiler-vote") @Transactional
+    Map<String,Object> voteSpoiler(@RequestHeader("X-Actor") String actor,@PathVariable String id,@RequestBody SpoilerVote input) {
+        lockActive(actor);
+        validateTitle(id);
+        if(input.containsSpoiler()==null || input.version()==null)fail(HttpStatus.BAD_REQUEST,"Informe o voto e a versão da resenha.");
+        String author=(String)one("select actor from profile where username=? and active=true",ProfileFields.username(input.username())).get("actor");
+        if(author.equals(actor))fail(HttpStatus.FORBIDDEN,"Você só pode votar em resenhas de outras pessoas.");
+        var review=one("select version from library where actor=? and title=? and review is not null and evaluation_public and not hidden for update",author,id);
+        if(!input.version().equals(review.get("version")))fail(HttpStatus.CONFLICT,"A resenha mudou. Atualize a página antes de votar.");
+        if(db.update("update review_spoiler_vote set contains_spoiler=? where author=? and title=? and voter=?",input.containsSpoiler(),author,id,actor)==0)
+            db.update("insert into review_spoiler_vote(author,title,voter,contains_spoiler) values(?,?,?,?)",author,id,actor,input.containsSpoiler());
+        return one("select "+EFFECTIVE_SPOILER+" as spoiler,"+MY_SPOILER_VOTE+" as my_vote from library l where l.actor=? and l.title=?",actor,author,id);
+    }
 
     private boolean episodic(String id) {
         return id.startsWith("tmdb-tv-") || (id.startsWith("demo-") && "tv".equals(verifyTitle(id)));
@@ -416,7 +439,7 @@ public class Social {
                 where l.title=? and l.evaluation_public=true and l.hidden=false and p.active=true
                 """,id));
         }
-        result.put("reviews",publicReviews(id,series));
+        result.put("reviews",publicReviews(actor,id,series));
         return result;
     }
 
@@ -508,6 +531,9 @@ public class Social {
                 }
 
                 db.update("update library set review=?,spoiler=?,version=version+1 where actor=? and title=?",review.isBlank()?null:review,Boolean.TRUE.equals(input.spoiler()),actor,id);
+
+                if (!Objects.equals(review.isBlank()?null:review,old.get("review")))
+                    db.update("delete from review_spoiler_vote where author=? and title=?",actor,id);
 
                 if (!review.isBlank() && old.get("review")==null) {
 
@@ -621,116 +647,125 @@ public class Social {
 
 
 
-    @PostMapping("/me/lists")
-
-    @Transactional
-
-    Map<String,String> createList(@RequestHeader("X-Actor") String actor,@RequestHeader("Idempotency-Key") String key,@RequestBody CollectionChange input) {
-
-        lockActive(actor);
-
-        String prior=receipt(actor,"list",key,input);
-
-        if (prior!=null) return Map.of("id",prior);
-
-        if (exists("select case when count(*)>=30 then 1 else 0 end from collection where actor=?",actor))
-
-            fail(HttpStatus.BAD_REQUEST,"Limite de 30 listas.");
-
-        String id=UUID.randomUUID().toString();
-
-        db.update("insert into collection(id,actor,name,description) values(?,?,?,?)",id,actor,required(input.name(),100),optional(input.description(),500));
-
-        replaceItems(id,input.items());
-
-        saveReceipt(actor,"list",key,input,id);
-
-        return Map.of("id",id);
-
-    }
-
-
-
-    @PutMapping("/me/lists/{id}")
-
-    @Transactional
-
-    void updateList(@RequestHeader("X-Actor") String actor,@PathVariable String id,@RequestBody CollectionChange input) {
-
-        lockActive(actor);
-
-        var old=one("select version from collection where id=? and actor=?",id,actor);
-
-        if (!Objects.equals(old.get("version"),input.version())) fail(HttpStatus.CONFLICT,"Lista alterada. Atualize a página.");
-
-        db.update("update collection set name=?,description=?,version=version+1 where id=?",required(input.name(),100),optional(input.description(),500),id);
-
-        replaceItems(id,input.items());
-
-    }
-
-
-
-    @DeleteMapping("/me/lists/{id}")
-
-    @Transactional
-
-    void deleteList(@RequestHeader("X-Actor") String actor,@PathVariable String id) {
-
-        lockActive(actor);
-
-        if (db.update("delete from collection where id=? and actor=?",id,actor)==0) fail(HttpStatus.NOT_FOUND,"Lista não encontrada.");
-
-    }
-
-
-
-    private void replaceItems(String id,List<String> items) {
-
-        List<String> titles=items==null?List.of():items;
-
-        if(titles.size()>30 || new HashSet<>(titles).size()!=titles.size()) fail(HttpStatus.BAD_REQUEST,"Use até 30 obras diferentes por lista.");
-
-        var previous=db.queryForList("select title from collection_item where collection_id=?",String.class,id);
-
-        for (String title:titles) if(!previous.contains(title)) verifyTitle(title);
-
-        db.update("delete from collection_item where collection_id=?",id);
-
-        for (int i=0;i<titles.size();i++) db.update("insert into collection_item values(?,?,?)",id,titles.get(i),i);
-
-    }
-
-
-
     record ProfileVisibility(String section,Boolean visible) {}
     @PutMapping("/me/visibility") @Transactional
     Map<String,Object> visibility(@RequestHeader("X-Actor") String actor,@RequestBody ProfileVisibility input){
         lockActive(actor);
-        if(input.visible()==null||input.section()==null||!Set.of("all","watchlist","ranking","watched","diary","lists").contains(input.section()))fail(HttpStatus.BAD_REQUEST,"Seção inválida.");
-        if(input.section().equals("all"))db.update("update profile set show_watchlist=?,show_ranking=?,show_watched=?,show_diary=?,show_lists=? where actor=?",input.visible(),input.visible(),input.visible(),input.visible(),input.visible(),actor);
+        if(input.visible()==null||input.section()==null||!Set.of("all","watchlist","ranking","watched","diary").contains(input.section()))fail(HttpStatus.BAD_REQUEST,"Seção inválida.");
+        if(input.section().equals("all"))db.update("update profile set show_watchlist=?,show_ranking=?,show_watched=?,show_diary=? where actor=?",input.visible(),input.visible(),input.visible(),input.visible(),actor);
         else db.update("update profile set show_"+input.section()+"=? where actor=?",input.visible(),actor);
         return profileVisibility(actor);
     }
     private Map<String,Object> profileVisibility(String actor){
-        var row=one("select show_watchlist,show_ranking,show_watched,show_diary,show_lists from profile where actor=?",actor);
+        var row=one("select show_watchlist,show_ranking,show_watched,show_diary from profile where actor=?",actor);
         var result=new LinkedHashMap<String,Object>();
-        for(String section:List.of("watchlist","ranking","watched","diary","lists"))result.put(section,row.get("show_"+section));
+        for(String section:List.of("watchlist","ranking","watched","diary"))result.put(section,row.get("show_"+section));
         return result;
     }
-    private Map<String,Object> dashboard(Map<String,Object> profile,String actor,boolean own) {
-        var visibility=profileVisibility(actor);
-        var lists=own||Boolean.TRUE.equals(visibility.get("lists"))?db.queryForList("select id,name,description,version from collection where actor=? order by created desc limit 30",actor):List.<Map<String,Object>>of();
-        if(!lists.isEmpty()){
-            var items=db.queryForList("select i.collection_id,i.title from collection_item i join collection c on c.id=i.collection_id where c.actor=? order by i.position",actor);
-            for(var list:lists)list.put("items",items.stream().filter(item->item.get("collection_id").equals(list.get("id"))).map(item->item.get("title")).toList());
+    private static final int DIARY_PAGE_SIZE = 24;
+
+    record DiaryPage(List<Map<String,Object>> items, boolean hasMore) {}
+
+    private DiaryPage diaryPage(String actor, int page, String title) {
+        var args = new ArrayList<Object>();
+        args.add(actor);
+        if (title != null) args.add(title);
+        args.add(DIARY_PAGE_SIZE + 1);
+        args.add((page - 1L) * DIARY_PAGE_SIZE);
+        var rows = db.queryForList("select id,title,watched_on,rewatch,watched_at from viewing where actor=? "
+                + (title == null ? "" : "and title=? ")
+                + "order by watched_on desc nulls last, coalesce(watched_at,created) desc, id desc limit ? offset ?", args.toArray());
+        return new DiaryPage(rows.subList(0, Math.min(rows.size(), DIARY_PAGE_SIZE)), rows.size() > DIARY_PAGE_SIZE);
+    }
+
+    @GetMapping("/diary")
+    DiaryPage diary(@RequestHeader("X-Actor") String actor, @RequestParam int page,
+                    @RequestParam(required=false) String username, @RequestParam(required=false) String title) {
+        active(actor);
+        if (page < 1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        if (title != null) validateTitle(title);
+        if (username == null) return diaryPage(actor, page, title);
+        var target = one("select actor from profile where username=? and active=true", ProfileFields.username(username));
+        String owner = (String)target.get("actor");
+        if (!Boolean.TRUE.equals(profileVisibility(owner).get("diary")))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        return diaryPage(owner, page, title);
+    }
+
+    @GetMapping("/notifications")
+    Map<String,Object> notifications(@RequestHeader("X-Actor") String actor) {
+        active(actor);
+        var items=db.queryForList("""
+                select kind,target,label,sender,count(*) over() as total from (
+                    select 'friend' as kind,p.username as target,p.name as label,p.name as sender,f.created
+                    from friendship f join profile p on p.actor=f.requester
+                    where f.recipient=? and f.status='pending' and p.active=true
+                    union all
+                    select 'room',r.id,r.name,p.name,i.created
+                    from movie_room_invitation i join movie_room r on r.id=i.room
+                    join profile p on p.actor=i.sender
+                    where i.recipient=? and p.active=true and r.status='lobby' and r.expires>CURRENT_TIMESTAMP
+                    and not exists(select 1 from movie_room_member m where m.room=r.id and m.actor=i.recipient)
+                    union all
+                    select reason,room,name,'',visible_at from room_end_notice
+                    where recipient=? and seen=false and visible_at<=CURRENT_TIMESTAMP
+                ) notices order by created desc,kind,target limit 20
+                """,actor,actor,actor);
+        long total=items.isEmpty()?0:((Number)items.getFirst().get("total")).longValue();
+        items.forEach(row->row.remove("total"));
+        return Map.of("items",items,"total",total);
+    }
+
+    @PutMapping("/notifications/rooms/{id}/read")
+    Map<String,Boolean> readRoomNotice(@RequestHeader("X-Actor") String actor,@PathVariable String id){
+        active(actor);
+        db.update("update room_end_notice set seen=true where room=? and recipient=? and visible_at<=CURRENT_TIMESTAMP",id,actor);
+        return Map.of("read",true);
+    }
+
+    @GetMapping("/library-page")
+    Map<String,Object> libraryPage(@RequestHeader("X-Actor") String actor, @RequestParam String section,
+                                   @RequestParam int page, @RequestParam(required=false) String username) {
+        active(actor);
+        if (page < 1 || !Set.of("watched","watchlist").contains(section))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        String owner = actor;
+        boolean visitor = username != null;
+        if (visitor) {
+            owner = (String)one("select actor from profile where username=? and active=true", ProfileFields.username(username)).get("actor");
+            if (!Boolean.TRUE.equals(profileVisibility(owner).get(section)))
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
-        var viewings=own||Boolean.TRUE.equals(visibility.get("diary"))?db.queryForList("select id,title,watched_on,rewatch,watched_at from viewing where actor=? order by watched_on desc nulls last,coalesce(watched_at,created) desc limit 100",actor):List.of();
+        boolean watchlist = section.equals("watchlist");
+        String predicate = watchlist ? "interest=true" : visitor
+                ? "(watched=true or (evaluation_public=true and hidden=false and (rating is not null or review is not null)))"
+                : "(watched=true or rating is not null or review is not null)";
+        String fields = watchlist ? "title" : visitor
+                ? "title,rewatching,case when evaluation_public and not hidden then rating end as rating,"
+                    + "case when evaluation_public and not hidden then review end as review,"
+                    + "case when evaluation_public and not hidden then "+EFFECTIVE_SPOILER+" else false end as spoiler,version,"
+                    + MY_SPOILER_VOTE+" as my_vote,exists(select 1 from library viewer where viewer.actor=? and viewer.title=l.title and viewer.watched) as viewer_watched"
+                : "title,rewatching,rating,review,spoiler";
+        int size = 24;
+        Object[] args = visitor && !watchlist ? new Object[]{actor,actor,owner,size,(page-1L)*size} : new Object[]{owner,size,(page-1L)*size};
+        var rows = db.queryForList("select " + fields + ",count(*) over() as total from library l where actor=? and "
+                + predicate + " order by title limit ? offset ?",args);
+        long total = rows.isEmpty() ? 0 : ((Number)rows.getFirst().get("total")).longValue();
+        rows.forEach(row -> row.remove("total"));
+        return Map.of("items",rows,"pages",(total + size - 1)/size);
+    }
+
+    private Map<String,Object> dashboard(Map<String,Object> profile,String actor,boolean own,boolean summary,String title) {
+        var visibility=profileVisibility(actor);
+        var diary = own || Boolean.TRUE.equals(visibility.get("diary"))
+                ? diaryPage(actor, 1, null) : new DiaryPage(List.of(), false);
         List<Map<String,Object>> library;
-        if(own)library=db.queryForList("select title,watched,interest,rewatching,rating,review,spoiler,hidden,version,evaluation_public from library where actor=? order by title limit 1000",actor);
+        if(summary)library=List.of();
+        else if(own && title!=null)library=db.queryForList("select title,watched,interest,rewatching,rating,review,spoiler,hidden,version,evaluation_public from library where actor=? and title=?",actor,title);
+        else if(own)library=db.queryForList("select title,watched,interest,rewatching,rating,review,spoiler,hidden,version,evaluation_public from library where actor=? order by title limit 1000",actor);
         else {
             boolean watched=Boolean.TRUE.equals(visibility.get("watched")),watchlist=Boolean.TRUE.equals(visibility.get("watchlist"));
-            library=db.queryForList("select title,watched,interest,rewatching,rating,review,spoiler,hidden,evaluation_public from library where actor=? and ((? and watched=true) or (? and interest=true) or (? and evaluation_public=true and hidden=false and (rating is not null or review is not null))) order by title limit 1000",actor,watched,watchlist,watched);
+            library=db.queryForList("select title,watched,interest,rewatching,rating,review,"+EFFECTIVE_SPOILER+" as spoiler,hidden,evaluation_public from library l where actor=? and ((? and watched=true) or (? and interest=true) or (? and evaluation_public=true and hidden=false and (rating is not null or review is not null))) order by title limit 1000",actor,watched,watchlist,watched);
             for(var item:library){
                 if(!watched){item.put("watched",false);item.put("rewatching",false);}
                 if(!watchlist)item.put("interest",false);
@@ -739,7 +774,7 @@ public class Social {
             }
         }
         var ranking=own||Boolean.TRUE.equals(visibility.get("ranking"))?db.queryForList("select title,tier from film_ranking where actor=? order by tier,position",actor):List.of();
-        return Map.of("profile",Map.of("username",profile.get("username"),"name",profile.get("name"),"bio",profile.get("bio"),"avatar",Objects.toString(profile.get("avatar"),"")),"library",library,"viewings",viewings,"lists",lists,"ranking",ranking,"visibility",visibility);
+        return Map.of("profile",Map.of("username",profile.get("username"),"name",profile.get("name"),"bio",profile.get("bio"),"avatar",Objects.toString(profile.get("avatar"),"")),"library",library,"viewings",diary.items(),"diaryHasMore",diary.hasMore(),"ranking",ranking,"visibility",visibility);
     }
 
     private void ensureLibrary(String actor,String id) {

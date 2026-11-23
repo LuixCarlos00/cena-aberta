@@ -53,11 +53,11 @@ const mock=createServer((req,res)=>{
   if(url.searchParams.get("query")==="limite"){res.statusCode=429;res.end("{}");return;}
   const film={id:777,title:"Filme simulado",original_title:"Mock Movie",release_date:"2024-01-01",original_language:"pt",overview:"Sinopse",poster_path:"/example.jpg"};
   const series={id:777,name:"Série simulada",original_language:"ja",first_air_date:"2025-01-01",genre_ids:[16]};
-  if(url.pathname==="/3/search/movie") res.end(JSON.stringify({results:[film],total_pages:2}));
+  if(url.pathname==="/3/search/movie") res.end(JSON.stringify({results:[url.searchParams.get("query")==="sem-generos"?{...film,id:800}: {...film,genre_ids:[18]}],total_pages:2}));
   else if(url.pathname==="/3/discover/movie"&&url.searchParams.has("primary_release_date.lte"))res.end(JSON.stringify({results:[{...film,vote_count:500,vote_average:8},{...film,id:778,adult:true},{...film,id:779,release_date:"2099-01-01"}],total_pages:2}));
   else if(url.pathname==="/3/discover/movie")res.end(JSON.stringify({results:[],total_pages:1}));
   else if(url.pathname==="/3/discover/tv")res.end(JSON.stringify({results:[series],total_pages:1}));
-  else if(url.pathname==="/3/movie/777")res.end(JSON.stringify({...film,runtime:124,genres:[{name:"Drama"}],credits:{crew:[{job:"Director",name:"Diretora Exemplo"}],cast:[{name:"Artista Exemplo"}]}}));
+  else if((url.pathname==="/3/movie/777"||url.pathname==="/3/movie/800"))res.end(JSON.stringify({...film,id:Number(url.pathname.split("/").pop()),runtime:124,genres:[{name:"Drama"}],credits:{crew:[{job:"Director",name:"Diretora Exemplo"}],cast:[{name:"Artista Exemplo"}]}}));
   else if(url.pathname==="/3/tv/777")res.end(JSON.stringify({...series,number_of_seasons:2,number_of_episodes:24,created_by:[{name:"Criadora Exemplo"}]}));
   else {res.statusCode=404;res.end("{}");}
 });
@@ -115,6 +115,15 @@ try {
   assert.equal(searchBatch.length,1,"Filme encontrado na busca desaparece do perfil antes de abrir o card.");
   assert.equal(searchBatch[0].name,search.items[0].name);
   assert.equal(searchBatch[0].poster,search.items[0].poster);
+  const beforeFilter=mockCalls.length;
+  assert.equal((await request(realMode,"/title-batch?ids=tmdb-movie-777&genres=35,18")).length,1);
+  assert.equal((await request(realMode,"/title-batch?ids=tmdb-movie-777&genre=35")).length,0);
+  assert.equal(mockCalls.length,beforeFilter,"Gêneros da busca devem dispensar consultas de detalhes.");
+  await request(realMode,"/titles?type=movie&query=sem-generos");
+  const beforeFallback=mockCalls.length;
+  assert.equal((await request(realMode,"/title-batch?ids=tmdb-movie-800&genre=18")).length,1);
+  assert.equal(mockCalls.length,beforeFallback+1);
+  assert.equal(mockCalls.at(-1).pathname,"/3/movie/800");
   const coldBatch=await request(realMode,"/title-batch?ids=tmdb-tv-777");
   assert.equal(coldBatch.length,1,"Título salvo sem cache precisa ser resolvido no lote.");
   const externalAnime=await request(realMode,"/titles?type=anime");
@@ -144,6 +153,10 @@ try {
   await request(realMode,"/title-batch?ids=tmdb-movie-777&genres=999",{expected:400});
   await request(realMode,"/suggestions",{method:"POST",body:{exclude:[],watched:[],liked:[],page:1,genres:[18,35]}});
   assert.equal(mockCalls.at(-1).searchParams.get("with_genres"),"18|35");
+  for(const [type,expected] of [["all",["tmdb-movie-777","tmdb-tv-777"]],["tv",["tmdb-tv-777"]],["anime",["tmdb-tv-777"]]]){
+    const page=await request(realMode,"/suggestions",{method:"POST",body:{exclude:[],watched:[],liked:[],page:1,type}});
+    assert.deepEqual(page.items.map(t=>t.id).sort(),expected);
+  }
   const exhausted=await request(realMode,"/suggestions",{method:"POST",body:{exclude:["tmdb-movie-777"],watched:[],liked:[],page:3}});
   assert.equal(exhausted.items.length,0,"Sugestões não podem repetir filmes da sala.");
   console.log("TMDB simulado verificado: token, PT-BR, busca, anime, detalhes, persistência e limite de consultas.");
@@ -268,9 +281,6 @@ try {
   await request(social,"/me/viewings",{...viewing,body:{title,watchedAt,rewatch:true},idem:"viewing-test-2"});
   await request(social,"/me/viewings/"+first.id,{method:"DELETE",user:"demo_second_user",expected:404});
   await request(social,"/me/viewings/"+first.id,{method:"DELETE"});
-  const list=await request(social,"/me/lists",{method:"POST",idem:"list-test-1",body:{name:"Minha lista",items:[title,"demo-mare-alta"]}});
-  const updated=["demo-mare-alta",title];
-  await request(social,"/me/lists/"+list.id,{method:"PUT",body:{name:"Minha lista",items:updated,version:0}});
   const me=await request(social,"/me");
   const filmViewings=me.viewings.filter(v=>v.title===title);
   assert.equal(filmViewings.length,2);
@@ -279,9 +289,32 @@ try {
   assert.equal(new Date(filmViewings[1].watched_at).toISOString(),new Date(watchedAt).toISOString());
   assert.equal(filmViewings[1].rewatch,true);
   assert.equal(me.library[0].rating,8);
-  assert.deepEqual(me.lists[0].items,updated);
+  assert.equal("lists" in me,false);
   const publicProfile=await request(social,"/profiles/testador",{user:"demo_second_user"});
   assert.deepEqual(publicProfile.viewings,[]);
+  await request(social,"/diary?username=testador&page=2",{user:"demo_second_user",expected:403});
+  await request(social,"/diary?page=0",{expected:400});
+  const expectedSessions=new Set(me.viewings.map(item=>item.id));
+  for(let i=0;i<100;i++){
+    const result=await request(social,"/me/viewings",{...viewing,idem:"paged-diary-"+i});
+    expectedSessions.add(result.id);
+  }
+  const pagedProfile=await request(social,"/me");
+  assert.equal(pagedProfile.diaryHasMore,true);
+  const collected=pagedProfile.viewings.map(item=>item.id);
+  for(let page=2;page<=5;page++){
+    const result=await request(social,"/diary?page="+page);
+    collected.push(...result.items.map(item=>item.id));
+    assert.equal(result.hasMore,page<5);
+  }
+  assert.equal(collected.length,expectedSessions.size);
+  assert.deepEqual(new Set(collected),expectedSessions);
+  assert.deepEqual(await request(social,"/diary?page=1&title=demo-ultimo-rolo"),{items:[],hasMore:false});
+  const titleHistory=await request(social,"/diary?page=5&title="+title);
+  assert.ok(titleHistory.items.length&&titleHistory.items.every(item=>item.title===title));
+  await request(social,"/diary?page=1&username=testador&title="+title,{user:"demo_second_user",expected:403});
+  assert.deepEqual(await request(social,"/diary?page=6"),{items:[],hasMore:false});
+
   assert.match(publicProfile.profile.avatar,/^data:image\/jpeg;base64,/);
   assert.equal("cpf" in publicProfile.profile,false);
   assert.equal("cpf" in (await request(social,"/me")).profile,false);
@@ -291,7 +324,7 @@ try {
   await profile(actor,"testador",{avatar:""});
   assert.equal((await request(social,"/me")).profile.avatar,"");
   assert.equal(publicProfile.library[0].interest,false);
-  console.log("APIs verificadas: autenticação interna, catálogo, interesse, notas, resenhas, diário, idempotência, propriedade e listas.");
+  console.log("APIs verificadas: autenticação interna, catálogo, interesse, notas, resenhas, diário, idempotência, propriedade e privacidade.");
 
   const app=start(process.execPath,["node_modules/next/dist/bin/next","start","--port","19180","--hostname",useTls?"127.0.0.1":webHost],{
     CATALOG_URL:catalog,SOCIAL_URL:social,NEXTAUTH_URL:web,NEXTAUTH_SECRET:randomUUID(),
@@ -452,6 +485,12 @@ try {
   assert((await friendSearch.json()).some(p=>p.username==="testador"));
   const friendRequest=await fetch(web+"/api/v1/friends",{method:"POST",headers:finalHeaders,body:JSON.stringify({username:"testador"})});
   assert.equal(friendRequest.status,200);const friendship=await friendRequest.json();
+  const notifications=()=>request(social,"/notifications");
+  const hasFriendRequest=async()=>(await notifications()).items.some(i=>i.kind==="friend"&&i.target==="conta_teste");
+  assert(await hasFriendRequest());
+  assert.equal((await fetch(web+"/api/v1/notifications")).status,401);
+  const senderInbox=await fetch(web+"/api/v1/notifications",{headers:finalHeaders});
+  assert.equal(senderInbox.status,200);assert(!(await senderInbox.json()).items.some(i=>i.target==="testador"&&i.kind==="friend"));
   await request(social,"/friends/"+friendship.id,{method:"PUT",user:"demo_second_user",body:{action:"accept"},expected:403});
   await request(social,"/friends/"+friendship.id,{method:"PUT",body:{action:"accept"}});
   const invitedRoom=await (await fetch(web+"/api/v1/rooms",{method:"POST",headers:finalHeaders,body:JSON.stringify({name:"Convite para amigos teste"})})).json();
@@ -459,10 +498,28 @@ try {
   assert((await roomFriends.json()).items.some(p=>p.username==="testador"&&!p.joined&&!p.invited));
   const sendRoomInvite=()=>fetch(web+"/api/v1/rooms/"+invitedRoom.id+"/invite",{method:"POST",headers:finalHeaders,body:JSON.stringify({username:"testador"})});
   assert.equal((await sendRoomInvite()).status,200);assert.equal((await sendRoomInvite()).status,200);
+  const roomNotices=async()=>(await notifications()).items.filter(i=>i.kind==="room"&&i.target===invitedRoom.id);
+  assert(!(await hasFriendRequest()));assert.equal((await roomNotices()).length,1);
   assert((await request(social,"/rooms")).some(r=>r.id===invitedRoom.id&&r.invited));
   await request(social,"/rooms/"+invitedRoom.id,{expected:403});
   await request(social,"/rooms/"+invitedRoom.id+"/join",{method:"POST"});
   assert((await request(social,"/rooms")).some(r=>r.id===invitedRoom.id&&!r.invited));
+  assert.equal((await roomNotices()).length,0);
+  const lobbyExit=await request(social,"/rooms/"+invitedRoom.id+"/leave",{method:"POST"});
+  assert.equal(lobbyExit.dissolved,false);
+  const lobbyAfterExit=await (await fetch(web+"/api/v1/rooms/"+invitedRoom.id,{headers:finalHeaders})).json();
+  assert.equal(lobbyAfterExit.status,"lobby");assert.equal(lobbyAfterExit.members.length,1);
+  await request(social,"/rooms/"+invitedRoom.id+"/join",{method:"POST"});
+  assert.equal((await fetch(web+"/api/v1/rooms/"+invitedRoom.id+"/start",{method:"POST",headers:finalHeaders})).status,200);
+  const left=await request(social,"/rooms/"+invitedRoom.id+"/leave",{method:"POST"});
+  assert(left.dissolved);
+  const endedNotice=item=>item.kind==="closedByLeave"&&item.target===invitedRoom.id;
+  assert((await notifications()).items.some(endedNotice));
+  const ownerNotices=async()=>await (await fetch(web+"/api/v1/notifications",{headers:finalHeaders})).json();
+  assert((await ownerNotices()).items.some(endedNotice));
+  assert.equal((await fetch(web+"/api/v1/notifications/rooms/"+invitedRoom.id+"/read",{method:"PUT",headers:finalHeaders})).status,200);
+  assert(!(await ownerNotices()).items.some(endedNotice));
+  assert((await notifications()).items.some(endedNotice));
   const publicFriends=await fetch(web+"/api/v1/friends/profile?username=testador",{headers:finalHeaders});
   assert.equal(publicFriends.status,200);
   const publicFriendsData=await publicFriends.json();
@@ -490,16 +547,18 @@ try {
   assert.equal(updatedRank.status,200);
   assert.deepEqual((await updatedRank.json()).items,[{title:"demo-lua-de-papel",tier:1}]);
 
+  const retired=await fetch(web+"/api/v1/me/lists",{method:"POST",headers:finalHeaders,body:"{}"});
+  assert.equal(retired.status,404);
+  await request(social,"/me/visibility",{method:"PUT",body:{section:"lists",visible:true},expected:400});
   const visibilityUpdate=async(section,visible)=>{
     const r=await fetch(web+"/api/v1/me/visibility",{method:"PUT",headers:finalHeaders,body:JSON.stringify({section,visible})});assert.equal(r.status,200);
   };
   const visitor=()=>request(social,"/profiles?username=conta_teste");
-  const visibilityList=await fetch(web+"/api/v1/me/lists",{method:"POST",headers:{...finalHeaders,"Idempotency-Key":"visibility-list"},body:JSON.stringify({name:"Lista de teste de privacidade",items:["demo-lua-de-papel"]})});assert.equal(visibilityList.status,200);
   await visibilityUpdate("all",true);
   const shared=await visitor();
-  assert(shared.library.some(i=>i.interest));assert(shared.library.some(i=>i.watched));assert(shared.ranking.length);assert(shared.viewings.length);assert(shared.lists.length);
+  assert(shared.library.some(i=>i.interest));assert(shared.library.some(i=>i.watched));assert(shared.ranking.length);assert(shared.viewings.length);assert.equal("lists" in shared,false);
   await visibilityUpdate("all",false);
-  const hidden=await visitor();for(const field of ["library","ranking","viewings","lists"])assert.deepEqual(hidden[field],[],field+" must be private");
+  const hidden=await visitor();for(const field of ["library","ranking","viewings"])assert.deepEqual(hidden[field],[],field+" must be private");
   const hiddenLegacy=await request(social,"/profiles/conta_teste");assert.deepEqual(hiddenLegacy.library,[]);
   const ownHidden=await fetch(web+"/api/v1/me",{headers:finalHeaders});assert((await ownHidden.json()).library.length);
   await visibilityUpdate("watchlist",true);
@@ -507,10 +566,9 @@ try {
   await visibilityUpdate("watchlist",false);await visibilityUpdate("ranking",true);
   const onlyRanking=await visitor();assert(onlyRanking.ranking.length);assert.deepEqual(onlyRanking.library,[]);
   await visibilityUpdate("ranking",false);await visibilityUpdate("diary",true);
-  const onlyDiary=await visitor();assert(onlyDiary.viewings.length);assert.deepEqual(onlyDiary.library,[]);
-  await visibilityUpdate("diary",false);await visibilityUpdate("lists",true);
-  const onlyLists=await visitor();assert(onlyLists.lists.length);assert.deepEqual(onlyLists.library,[]);assert.deepEqual(onlyLists.viewings,[]);
-  await visibilityUpdate("all",false);await visibilityUpdate("watched",true);await visibilityUpdate("lists",true);
+  const publicDiary=await request(social,"/diary?page=1&username=conta_teste");
+  const onlyDiary=await visitor();assert.deepEqual(publicDiary.items,onlyDiary.viewings);assert(onlyDiary.viewings.length);assert.deepEqual(onlyDiary.library,[]);
+  await visibilityUpdate("all",false);await visibilityUpdate("watched",true);
   assert.equal((await fetch(web+"/api/v1/me/visibility",{method:"PUT",headers:finalHeaders,body:JSON.stringify({section:"actor",visible:true})})).status,400);
   console.log("Privacidade: seções filtradas na API, controle geral e acesso do proprietário verificados.");
 
@@ -526,6 +584,28 @@ try {
     assert.equal((await fetch(web+"/api/v1/rooms/"+reconsiderRoom+"/reconsider/demo-fim-da-linha",{method:"PUT",headers:finalHeaders,body:JSON.stringify({liked:true})})).status,200);
     const agreed=await fetch(web+"/api/v1/rooms/"+reconsiderRoom,{headers:finalHeaders});assert((await agreed.json()).matches.includes("demo-fim-da-linha"));
   }
+  const reviewAuthor="demo_spoiler_author", authorName="critico";
+  await profile(reviewAuthor,authorName,{});
+  const reviewUrl="/me/library/"+title+"/review";
+  const reviewBody={version:0,review:"Resenha da votação de teste",spoiler:false};
+  const published=await request(social,reviewUrl,{user:reviewAuthor,method:"PUT",body:reviewBody});
+  const ballot=(user,containsSpoiler,expected=200)=>request(social,"/titles/"+title+"/spoiler-vote",
+    {method:"PUT",user,expected,body:{username:authorName,version:published.version,containsSpoiler}});
+  await ballot(reviewAuthor,true,403);
+  assert.equal((await ballot(actor,true)).spoiler,false);
+  assert.equal((await ballot(actor,true)).spoiler,false);
+  assert.equal((await ballot("demo_second_user",true)).spoiler,true);
+  const visitorPage=()=>request(social,"/library-page?section=watched&page=1&username="+authorName,{user:actor});
+  const classified=(await visitorPage()).items.find(i=>i.title===title);
+  assert.equal(classified.spoiler,true);assert.equal(classified.my_vote,true);
+  assert.equal(classified.viewer_watched,(await request(social,"/me")).library.find(i=>i.title===title).watched);
+  assert.equal((await ballot("demo_second_user",false)).spoiler,false);
+  await request(social,reviewUrl,{user:reviewAuthor,method:"PUT",body:{version:published.version,review:"Texto atualizado",spoiler:false}});
+  await ballot(actor,true,409);
+  const revised=(await request(social,communityPath)).reviews.find(r=>r.username===authorName);
+  assert.equal(revised.my_vote,null);assert.equal(revised.spoiler,false);
+  await request(social,"/me/library/"+title+"/visibility",{user:reviewAuthor,method:"PUT",body:{value:false}});
+  await ballot(actor,true,404);
   console.log("Segunda rodada: maioria e identificação dos apoiadores verificadas pela API autenticada.");
   console.log("Página individual e ranking por usuário com persistência e controle de versão verificados.");
   console.log("Cadastro por e-mail, perfil sem CPF e com foto, link de uso único e recuperação verificados.");

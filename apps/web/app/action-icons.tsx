@@ -3,9 +3,9 @@ import {useId,useState,type ReactNode} from "react";
 
 type Kind="watched"|"interest"|"rewatching"|"spoiler"|"visibility";
 
-function Icon({kind,active}:{kind:Kind;active:boolean}) {
+export function Icon({kind,active}:{kind:Kind;active:boolean}) {
   const fill=active?"currentColor":"none";
-  const detail=active?"var(--icon-ink)":"currentColor";
+  const detail=active?"var(--icon-ink,var(--panel))":"currentColor";
   let shape:ReactNode;
   switch(kind) {
     case "watched":
