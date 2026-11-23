@@ -14,7 +14,6 @@ import java.security.MessageDigest;
 
 import java.time.Duration;
 
-import java.text.Normalizer;
 
 import java.util.*;
 
@@ -184,7 +183,7 @@ public class Catalog {
                 String path="/discover/"+format+"?include_adult=false&"+dateField+".lte="+today+"&"+sort+filter;
                 for(int page=input.page();page<input.page()+2;page++)for(var item:remote(path+"&page="+page).path("results")){
                     String date=item.path(format.equals("tv")?"first_air_date":"release_date").asText();
-                    Title title=mapped(format,item);
+                    Title title=TmdbMapper.title(format,item);
                     if(date.isBlank()||date.compareTo(today.toString())>0||item.path("adult").asBoolean()||excluded.contains(title.id()))continue;
                     if(type.equals("anime")&&(!title.anime()||(!ids.isEmpty()&&java.util.stream.StreamSupport.stream(item.path("genre_ids").spliterator(),false).noneMatch(g->ids.contains(g.asInt())))))continue;
                     double votes=item.path("vote_count").asDouble();
@@ -217,7 +216,7 @@ public class Catalog {
         var result=new ArrayList<Title>();
         for(var item:remote("/discover/movie?include_adult=false&include_video=false&region=BR&with_release_type=2%7C3&release_date.gte="+since+"&release_date.lte="+today+"&sort_by=popularity.desc").path("results")){
             if(item.path("adult").asBoolean()||item.path("poster_path").asText("").isBlank()||item.path("poster_path").isNull())continue;
-            result.add(mapped("movie",item));if(result.size()==6)break;
+            result.add(TmdbMapper.title("movie",item));if(result.size()==6)break;
         }
         return result;
     }
@@ -236,7 +235,7 @@ public class Catalog {
 
             var found = fixtures.stream().filter(t -> type.equals("all") || type.equals(t.format()) || type.equals("anime") && t.anime())
 
-                .filter(t -> normalize(t.name()).contains(normalize(query)) || normalize(t.original()).contains(normalize(query))).toList();
+                .filter(t -> TmdbMapper.normalize(t.name()).contains(TmdbMapper.normalize(query)) || TmdbMapper.normalize(t.original()).contains(TmdbMapper.normalize(query))).toList();
 
             return Map.of("items",page == 1 ? found : List.of(),"hasMore",false,"demo",true);
 
@@ -260,7 +259,7 @@ public class Catalog {
 
             for (JsonNode item : result.path("results")) {
 
-                Title title = mapped(format,item);
+                Title title = TmdbMapper.title(format,item);
 
                 if (!type.equals("anime") || title.anime()) { storeSummary(title,item); found.add(title); }
 
@@ -342,7 +341,7 @@ public class Catalog {
 
             JsonNode item=remote("/" + parts[1] + "/" + parts[2] + "?append_to_response=credits");
 
-            title=mapped(parts[1],item).withDetails(details(parts[1],item));
+            title=TmdbMapper.title(parts[1],item).withDetails(TmdbMapper.details(parts[1],item));
 
         } catch (ResponseStatusException unavailable) {
 
@@ -402,45 +401,6 @@ public class Catalog {
 
 
 
-    private static Details details(String format, JsonNode item) {
-
-        boolean movie=format.equals("movie");
-
-        JsonNode credits=item.path("credits");
-
-        return new Details(names(item.path("genres"),null,8),movie?positive(item.path("runtime")):null,
-
-            movie?null:positive(item.path("number_of_seasons")),movie?null:positive(item.path("number_of_episodes")),
-
-            movie?names(credits.path("crew"),"Director",5):List.of(),names(item.path("created_by"),null,5),names(credits.path("cast"),null,8));
-
-    }
-
-
-
-    private static Integer positive(JsonNode value) { return value.asInt()>0?value.asInt():null; }
-
-
-
-    private static List<String> names(JsonNode items,String job,int limit) {
-
-        var names=new LinkedHashSet<String>();
-
-        for(JsonNode item:items) {
-
-            if(job!=null && !job.equals(item.path("job").asText())) continue;
-
-            String name=item.path("name").asText("").strip();
-
-            if(!name.isEmpty())names.add(name);
-
-            if(names.size()==limit)break;
-
-        }
-
-        return List.copyOf(names);
-
-    }
 
 
 
@@ -595,38 +555,5 @@ public class Catalog {
 
 
 
-    private static Title mapped(String format, JsonNode item) {
-
-        boolean animation = false;
-
-        for (JsonNode genre : item.path("genre_ids")) animation |= genre.asInt() == 16;
-
-        for (JsonNode genre : item.path("genres")) animation |= genre.path("id").asInt() == 16;
-
-        String date = item.path(format.equals("movie") ? "release_date" : "first_air_date").asText("");
-
-        String original = item.path(format.equals("movie") ? "original_title" : "original_name").asText("");
-
-        String name = item.path(format.equals("movie") ? "title" : "name").asText("");
-
-        String poster = item.path("poster_path").asText("");
-
-        return new Title("tmdb-" + format + "-" + item.path("id").asLong(),format,animation && item.path("original_language").asText().equals("ja"),
-
-            name.isBlank() ? original.isBlank() ? "Título indisponível" : original : name, original,
-
-            date.length() >= 4 ? date.substring(0,4) : "",item.path("overview").asText(""),
-
-            poster.matches("/[A-Za-z0-9._-]+") ? "https://image.tmdb.org/t/p/w500" + poster : null);
-
-    }
-
-
-
-    private static String normalize(String input) {
-
-        return Normalizer.normalize(input,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
-
-    }
 
 }
